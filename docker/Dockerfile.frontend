@@ -30,10 +30,16 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs
 RUN adduser --system --uid 1001 nextjs
 
-# Copy built application
-COPY --from=builder /app/public ./public
+# Create public directory if it doesn't exist
+RUN mkdir -p /app/public
+
+# Copy built application (public folder may not exist in all projects)
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+
+# Copy public folder if it exists (using shell to handle missing folder)
+RUN --mount=from=builder,source=/app,target=/builder \
+    if [ -d "/builder/public" ]; then cp -r /builder/public/* ./public/ 2>/dev/null || true; fi
 
 # Set ownership
 RUN chown -R nextjs:nodejs /app

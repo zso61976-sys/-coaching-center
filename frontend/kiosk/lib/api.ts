@@ -1,8 +1,8 @@
 import axios from 'axios';
 
-const API_URL = process.env.API_URL || 'http://localhost:3000/api';
-const KIOSK_SECRET = process.env.KIOSK_SECRET || '';
-const BRANCH_ID = process.env.BRANCH_ID || '660e8400-e29b-41d4-a716-446655440002';
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000') + '/api';
+const KIOSK_SECRET = process.env.NEXT_PUBLIC_KIOSK_SECRET || '';
+const BRANCH_ID = process.env.NEXT_PUBLIC_BRANCH_ID || '660e8400-e29b-41d4-a716-446655440002';
 
 const api = axios.create({
   baseURL: API_URL,
