@@ -1,0 +1,386 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Tenant {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String   @db.VarChar(255)
+  code      String   @unique @default("DEFAULT") @db.VarChar(50)
+  subdomain String?  @unique @db.VarChar(100)
+  status    String   @default("active") @db.VarChar(20)
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  branches           Branch[]
+  students           Student[]
+  parents            Parent[]
+  attendanceSessions AttendanceSession[]
+  telegramLogs       TelegramMessageLog[]
+  auditLogs          AuditLog[]
+  users              User[]
+  biometricDevices   BiometricDevice[]
+
+  @@index([status])
+  @@index([code])
+  @@map("tenants")
+}
+
+model Branch {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String   @db.VarChar(255)
+  address   String?  @db.Text
+  phone     String?  @db.VarChar(20)
+  timezone  String   @default("UTC") @db.VarChar(50)
+  status    String   @default("active") @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  students           Student[]
+  attendanceSessions AttendanceSession[]
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("branches")
+}
+
+model Student {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  branchId     String    @map("branch_id") @db.Uuid
+  studentCode  String    @map("student_code") @db.VarChar(50)
+  attendanceId String?   @map("attendance_id") @db.VarChar(20)
+  fullName     String    @map("full_name") @db.VarChar(255)
+  phone        String?   @db.VarChar(20)
+  email        String?   @db.VarChar(255)
+  dateOfBirth  DateTime? @map("date_of_birth") @db.Date
+  grade        String?   @db.VarChar(50)
+  pinHash      String?   @map("pin_hash") @db.VarChar(255)
+  status       String    @default("active") @db.VarChar(20)
+  metadata     Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  createdBy    String?   @map("created_by") @db.Uuid
+  updatedBy    String?   @map("updated_by") @db.Uuid
+
+  tenant               Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch               Branch                @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  attendanceSessions   AttendanceSession[]
+  parents              StudentParent[]
+  telegramLogs         TelegramMessageLog[]
+  biometricEnrollments BiometricEnrollment[]
+
+  @@unique([tenantId, studentCode])
+  @@unique([tenantId, attendanceId])
+  @@index([tenantId, branchId])
+  @@index([studentCode])
+  @@index([attendanceId])
+  @@index([status])
+  @@index([fullName])
+  @@map("students")
+}
+
+model Parent {
+  id                  String    @id @default(uuid()) @db.Uuid
+  tenantId            String    @map("tenant_id") @db.Uuid
+  fullName            String    @map("full_name") @db.VarChar(255)
+  phone               String    @db.VarChar(20)
+  email               String?   @db.VarChar(255)
+  telegramChatId      String?   @map("telegram_chat_id") @db.VarChar(100)
+  telegramUsername    String?   @map("telegram_username") @db.VarChar(100)
+  telegramConnectedAt DateTime? @map("telegram_connected_at")
+  notificationEnabled Boolean   @default(true) @map("notification_enabled")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  tenant         Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  students       StudentParent[]
+  telegramLogs   TelegramMessageLog[]
+  telegramTokens ParentTelegramToken[]
+
+  @@index([tenantId])
+  @@index([phone])
+  @@map("parents")
+}
+
+model StudentParent {
+  studentId    String   @map("student_id") @db.Uuid
+  parentId     String   @map("parent_id") @db.Uuid
+  relationship String   @db.VarChar(50)
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  parent  Parent  @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@id([studentId, parentId])
+  @@index([studentId])
+  @@index([parentId])
+  @@map("student_parents")
+}
+
+model AttendanceSession {
+  id             String    @id @default(uuid()) @db.Uuid
+  tenantId       String    @map("tenant_id") @db.Uuid
+  branchId       String    @map("branch_id") @db.Uuid
+  studentId      String    @map("student_id") @db.Uuid
+  checkinTime    DateTime  @default(now()) @map("checkin_time")
+  checkoutTime   DateTime? @map("checkout_time")
+  checkoutMethod String?   @map("checkout_method") @db.VarChar(50)
+  status         String    @default("checked_in") @db.VarChar(20)
+  notes          String?   @db.Text
+  createdBy      String?   @map("created_by") @db.Uuid
+  updatedBy      String?   @map("updated_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  tenant            Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch            Branch               @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  student           Student              @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  telegramLogs      TelegramMessageLog[]
+  biometricPunchLog BiometricPunchLog?
+
+  @@index([tenantId, branchId])
+  @@index([studentId])
+  @@index([checkinTime])
+  @@index([status])
+  @@map("attendance_sessions")
+}
+
+model TelegramMessageLog {
+  id                String    @id @default(uuid()) @db.Uuid
+  tenantId          String    @map("tenant_id") @db.Uuid
+  studentId         String    @map("student_id") @db.Uuid
+  parentId          String    @map("parent_id") @db.Uuid
+  attendanceId      String?   @map("attendance_id") @db.Uuid
+  messageType       String    @map("message_type") @db.VarChar(50)
+  messageText       String    @map("message_text") @db.Text
+  telegramMessageId String?   @map("telegram_message_id") @db.VarChar(100)
+  telegramChatId    String    @map("telegram_chat_id") @db.VarChar(100)
+  status            String    @default("queued") @db.VarChar(20)
+  errorText         String?   @map("error_text") @db.Text
+  retryCount        Int       @default(0) @map("retry_count")
+  sentAt            DateTime? @map("sent_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  tenant     Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student    Student            @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  parent     Parent             @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  attendance AttendanceSession? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([status])
+  @@index([studentId])
+  @@index([parentId])
+  @@index([createdAt])
+  @@map("telegram_message_logs")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  actorType   String   @default("user") @map("actor_type") @db.VarChar(50)
+  action      String   @db.VarChar(100)
+  entityType  String   @map("entity_type") @db.VarChar(100)
+  entityId    String   @map("entity_id") @db.Uuid
+  beforeData  Json?    @map("before_data")
+  afterData   Json?    @map("after_data")
+  ipAddress   String?  @map("ip_address") @db.VarChar(45)
+  userAgent   String?  @map("user_agent") @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([actorUserId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+model ParentTelegramToken {
+  id           String    @id @default(uuid()) @db.Uuid
+  parentId     String    @map("parent_id") @db.Uuid
+  token        String    @unique @db.VarChar(100)
+  expiresAt    DateTime  @map("expires_at")
+  usedAt       DateTime? @map("used_at")
+  usedByChatId String?   @map("used_by_chat_id") @db.VarChar(100)
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  parent Parent @relation(fields: [parentId], references: [id], onDelete: Cascade)
+
+  @@index([parentId])
+  @@index([token])
+  @@map("parent_telegram_tokens")
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String?  @map("tenant_id") @db.Uuid
+  email        String   @db.VarChar(255)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  fullName     String   @map("full_name") @db.VarChar(255)
+  role         String   @default("staff") @db.VarChar(50)
+  permissions  Json     @default("[]")
+  status       String   @default("active") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, email])
+  @@index([tenantId])
+  @@index([email])
+  @@map("users")
+}
+
+model Teacher {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  teacherCode  String   @map("teacher_code") @db.VarChar(50)
+  attendanceId String?  @map("attendance_id") @db.VarChar(20)
+  fullName     String   @map("full_name") @db.VarChar(255)
+  phone        String?  @db.VarChar(20)
+  salary       Decimal? @db.Decimal(10, 2)
+  subjects     String[] @default([])
+  classes      String[] @default([])
+  status       String   @default("active") @db.VarChar(20)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  schedules            ClassSchedule[]
+  biometricEnrollments BiometricEnrollment[]
+
+  @@unique([tenantId, teacherCode])
+  @@unique([tenantId, attendanceId])
+  @@index([tenantId])
+  @@index([attendanceId])
+  @@index([status])
+  @@map("teachers")
+}
+
+model ClassSchedule {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  teacherId    String    @map("teacher_id") @db.Uuid
+  subjectCode  String    @map("subject_code") @db.VarChar(50)
+  classGrade   String    @map("class_grade") @db.VarChar(20)
+  dayOfWeek    String?   @map("day_of_week") @db.VarChar(20)
+  scheduleDate DateTime? @map("schedule_date") @db.Date
+  startTime    String    @map("start_time") @db.VarChar(10)
+  endTime      String    @map("end_time") @db.VarChar(10)
+  isRecurring  Boolean   @default(true) @map("is_recurring")
+  status       String    @default("active") @db.VarChar(20)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  teacher Teacher @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([teacherId])
+  @@index([dayOfWeek])
+  @@index([scheduleDate])
+  @@map("class_schedules")
+}
+
+model BiometricDevice {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  serialNumber String    @unique @map("serial_number") @db.VarChar(100)
+  name         String    @db.VarChar(255)
+  model        String?   @db.VarChar(100)
+  location     String?   @db.VarChar(255)
+  ipAddress    String?   @map("ip_address") @db.VarChar(45)
+  status          String    @default("active") @db.VarChar(20)
+  timezoneOffset  Float     @default(0) @map("timezone_offset")
+  lastSyncAt      DateTime? @map("last_sync_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  tenant      Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enrollments BiometricEnrollment[]
+  punchLogs   BiometricPunchLog[]
+  commands    DeviceCommand[]
+
+  @@index([tenantId])
+  @@index([serialNumber])
+  @@index([status])
+  @@map("biometric_devices")
+}
+
+model BiometricEnrollment {
+  id           String   @id @default(uuid()) @db.Uuid
+  deviceId     String   @map("device_id") @db.Uuid
+  studentId    String?  @map("student_id") @db.Uuid
+  teacherId    String?  @map("teacher_id") @db.Uuid
+  deviceUserId String   @map("device_user_id") @db.VarChar(50)
+  memberType   String   @default("student") @map("member_type") @db.VarChar(20)
+  status       String   @default("active") @db.VarChar(20)
+  enrolledAt   DateTime @default(now()) @map("enrolled_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  device  BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  student Student?        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  teacher Teacher?        @relation(fields: [teacherId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, deviceUserId])
+  @@unique([deviceId, studentId])
+  @@unique([deviceId, teacherId])
+  @@index([deviceId])
+  @@index([studentId])
+  @@index([teacherId])
+  @@index([deviceUserId])
+  @@map("biometric_enrollments")
+}
+
+model BiometricPunchLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  deviceId     String    @map("device_id") @db.Uuid
+  deviceUserId String    @map("device_user_id") @db.VarChar(50)
+  punchTime    DateTime  @map("punch_time")
+  punchType    String    @map("punch_type") @db.VarChar(20)
+  verifyMethod String    @map("verify_method") @db.VarChar(50)
+  rawData      Json?     @map("raw_data")
+  processed    Boolean   @default(false)
+  attendanceId String?   @unique @map("attendance_id") @db.Uuid
+  errorMessage String?   @map("error_message") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  device     BiometricDevice    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  attendance AttendanceSession? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId])
+  @@index([deviceUserId])
+  @@index([punchTime])
+  @@index([processed])
+  @@index([createdAt])
+  @@map("biometric_punch_logs")
+}
+
+model DeviceCommand {
+  id          String    @id @default(uuid()) @db.Uuid
+  deviceId    String    @map("device_id") @db.Uuid
+  commandType String    @map("command_type") @db.VarChar(50)
+  commandData String    @map("command_data") @db.Text
+  status      String    @default("pending") @db.VarChar(20)
+  sentAt      DateTime? @map("sent_at")
+  executedAt  DateTime? @map("executed_at")
+  returnValue String?   @map("return_value") @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  device BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, status])
+  @@index([createdAt])
+  @@map("device_commands")
+}

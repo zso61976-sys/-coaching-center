@@ -1,0 +1,32 @@
+version: '3.8'
+
+# Development-only services (just database and redis)
+# Run with: docker-compose -f docker-compose.dev.yml up -d
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: attendance_db_dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: attendance
+      POSTGRES_PASSWORD: attendance_dev
+      POSTGRES_DB: attendance_db
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: attendance_redis_dev
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_dev_data:/data
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_dev_data:
+  redis_dev_data:

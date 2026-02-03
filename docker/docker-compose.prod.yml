@@ -1,0 +1,137 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: coaching_db
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER:-attendance}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-your_secure_password_here}
+      POSTGRES_DB: ${DB_NAME:-attendance_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - coaching_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attendance -d attendance_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Queue (Optional - can use Upstash instead)
+  redis:
+    image: redis:7-alpine
+    container_name: coaching_redis
+    restart: always
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - coaching_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: coaching_backend
+    restart: always
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${DB_USER:-attendance}:${DB_PASSWORD:-your_secure_password_here}@postgres:5432/${DB_NAME:-attendance_db}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-24h}
+      KIOSK_SECRET_KEY: ${KIOSK_SECRET_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - coaching_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Admin Frontend
+  admin:
+    build:
+      context: ../frontend/admin-new
+      dockerfile: ../../docker/Dockerfile.frontend
+      args:
+        - APP_NAME=admin-new
+    container_name: coaching_admin
+    restart: always
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - backend
+    networks:
+      - coaching_network
+
+  # Kiosk Frontend (Optional)
+  kiosk:
+    build:
+      context: ../frontend/kiosk
+      dockerfile: ../../docker/Dockerfile.frontend
+      args:
+        - APP_NAME=kiosk
+    container_name: coaching_kiosk
+    restart: always
+    environment:
+      NODE_ENV: production
+    depends_on:
+      - backend
+    networks:
+      - coaching_network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: coaching_nginx
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+      - ./certbot/www:/var/www/certbot:ro
+    depends_on:
+      - backend
+      - admin
+    networks:
+      - coaching_network
+
+  # Certbot for SSL (Let's Encrypt)
+  certbot:
+    image: certbot/certbot
+    container_name: coaching_certbot
+    volumes:
+      - ./certbot/conf:/etc/letsencrypt
+      - ./certbot/www:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+networks:
+  coaching_network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:

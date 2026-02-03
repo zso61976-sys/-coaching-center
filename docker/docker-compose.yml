@@ -1,0 +1,112 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: attendance_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-attendance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-attendance_secret}
+      POSTGRES_DB: ${POSTGRES_DB:-attendance_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-attendance}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis for Job Queue
+  redis:
+    image: redis:7-alpine
+    container_name: attendance_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: attendance_backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-attendance}:${POSTGRES_PASSWORD:-attendance_secret}@postgres:5432/${POSTGRES_DB:-attendance_db}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      KIOSK_SECRET_KEY: ${KIOSK_SECRET_KEY}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET}
+      DEFAULT_TENANT_ID: ${DEFAULT_TENANT_ID:-550e8400-e29b-41d4-a716-446655440001}
+      PORT: 3000
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Kiosk Frontend
+  kiosk:
+    build:
+      context: ../frontend/kiosk
+      dockerfile: ../../docker/Dockerfile.frontend
+      args:
+        APP_NAME: kiosk
+    container_name: attendance_kiosk
+    restart: unless-stopped
+    environment:
+      API_URL: http://backend:3000/api
+      KIOSK_SECRET: ${KIOSK_SECRET_KEY}
+      BRANCH_ID: ${DEFAULT_BRANCH_ID:-660e8400-e29b-41d4-a716-446655440002}
+    ports:
+      - "3001:3000"
+    depends_on:
+      - backend
+
+  # Admin Portal Frontend
+  admin:
+    build:
+      context: ../frontend/admin
+      dockerfile: ../../docker/Dockerfile.frontend
+      args:
+        APP_NAME: admin
+    container_name: attendance_admin
+    restart: unless-stopped
+    environment:
+      API_URL: http://backend:3000/api
+    ports:
+      - "3002:3000"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  default:
+    name: attendance_network
