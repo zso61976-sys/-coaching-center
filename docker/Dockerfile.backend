@@ -1,20 +1,14 @@
 # Backend Dockerfile
 FROM node:20-alpine AS base
 
-# Install OpenSSL for Prisma
-RUN apk add --no-cache openssl
-
-# Install dependencies only when needed
-FROM base AS deps
-WORKDIR /app
-
-# Install dependencies
-COPY package*.json ./
-RUN npm ci --only=production
+# Install OpenSSL and other dependencies for Prisma
+RUN apk add --no-cache openssl openssl-dev libc6-compat
 
 # Development dependencies for building
 FROM base AS builder
 WORKDIR /app
+
+# Install all dependencies (including devDependencies)
 COPY package*.json ./
 RUN npm ci
 
@@ -26,6 +20,9 @@ RUN npx prisma generate
 
 # Build the application
 RUN npm run build
+
+# Verify build output
+RUN ls -la dist/ && ls -la dist/src/ || true
 
 # Production image
 FROM base AS runner
