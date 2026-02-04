@@ -126,10 +126,6 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 text-center text-sm text-gray-500 space-y-1">
-          <p>Super Admin: (empty code) / superadmin@system.com / SuperAdmin@123</p>
-          <p>Company Admin: EXCELL / admin@example.com / Admin@123456</p>
-        </div>
       </div>
     </div>
   );

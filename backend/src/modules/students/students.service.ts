@@ -208,6 +208,10 @@ export class StudentsService {
               parent: true,
             },
           },
+          biometricEnrollments: {
+            where: { status: 'active' },
+            select: { deviceId: true },
+          },
         },
         orderBy: { fullName: 'asc' },
       }),
@@ -227,6 +231,7 @@ export class StudentsService {
           grade: s.grade,
           status: s.status,
           branch_name: s.branch.name,
+          enrolled_device_ids: s.biometricEnrollments.map(e => e.deviceId),
           parents: s.parents.map(sp => ({
             parent_id: sp.parent.id,
             full_name: sp.parent.fullName,

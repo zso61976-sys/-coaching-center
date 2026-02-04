@@ -168,6 +168,10 @@ export class TeachersService {
       where,
       include: {
         schedules: true,
+        biometricEnrollments: {
+          where: { status: 'active' },
+          select: { deviceId: true },
+        },
       },
       orderBy: { fullName: 'asc' },
     });
@@ -186,6 +190,7 @@ export class TeachersService {
           classes: t.classes,
           status: t.status,
           schedule_count: t.schedules.length,
+          enrolled_device_ids: t.biometricEnrollments.map(e => e.deviceId),
           created_at: t.createdAt,
         })),
       },

@@ -31,6 +31,7 @@ interface Student {
   totalFees: number;
   feeDueDate: string;
   parents?: Parent[];
+  enrolledDeviceIds?: string[];
 }
 
 interface StudentFeeData {
@@ -69,6 +70,7 @@ interface Teacher {
   subjects: string[];
   classes: string[];
   isActive: boolean;
+  enrolledDeviceIds?: string[];
 }
 
 interface ClassSchedule {
@@ -338,6 +340,7 @@ export default function DashboardPage() {
             totalFees: 0,
             feeDueDate: studentFee.feeDueDate,
             parents: s.parents || [],
+            enrolledDeviceIds: s.enrolled_device_ids || [],
           };
         }));
       }
@@ -413,6 +416,7 @@ export default function DashboardPage() {
           subjects: t.subjects || [],
           classes: t.classes || [],
           isActive: t.status === 'active',
+          enrolledDeviceIds: t.enrolled_device_ids || [],
         })));
       }
     } catch (err) {
@@ -552,7 +556,7 @@ export default function DashboardPage() {
       biometricId: teacher.biometricId,
       subjects: teacher.subjects,
       classes: teacher.classes,
-      selectedDevices: [],
+      selectedDevices: teacher.enrolledDeviceIds || [],
     });
     setShowTeacherForm(true);
   };
@@ -973,7 +977,7 @@ export default function DashboardPage() {
       grade: student.grade,
       biometricId: student.biometricId || '',
       selectedSubjects: studentFee.subjects,
-      selectedDevices: [],
+      selectedDevices: student.enrolledDeviceIds || [],
       feesPaid: studentFee.feesPaid,
       feeDueDate: studentFee.feeDueDate,
       parentName: primaryParent?.full_name || '',
