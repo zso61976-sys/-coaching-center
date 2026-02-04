@@ -108,8 +108,9 @@ export default function SuperAdminDashboard() {
         adminFullName: '',
       });
       fetchData();
-    } catch (err: any) {
-      setError(err.message || 'Failed to create company');
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create company';
+      setError(errorMessage);
     }
   };
 
@@ -176,7 +177,7 @@ export default function SuperAdminDashboard() {
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm">
-          <h3 className="text-gray-500 text-sm font-medium">Today's Attendance</h3>
+          <h3 className="text-gray-500 text-sm font-medium">Today&apos;s Attendance</h3>
           <p className="text-3xl font-bold text-gray-800 mt-2">
             {stats?.todayAttendance || 0}
           </p>
