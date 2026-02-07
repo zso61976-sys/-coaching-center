@@ -48,10 +48,10 @@ export class AdmsController {
     const seconds = String(deviceTime.getUTCSeconds()).padStart(2, '0');
     const serverTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 
-    // TimeZone=0 so the device does not apply any additional offset
-    const deviceTzHours = 0;
+    // Send the actual timezone so the device displays the correct GMT label
+    const deviceTzHours = deviceUtcOffset;
 
-    this.logger.log(`Sending ServerTime=${serverTime} (device local UTC+${deviceUtcOffset}) to ${serialNumber}, TimeZone=${deviceTzHours}`);
+    this.logger.log(`Sending ServerTime=${serverTime} (device local) to ${serialNumber}, TimeZone=${deviceTzHours}, DB offset=${deviceUtcOffset}`);
 
     const response = [
       `GET OPTION FROM: ${serialNumber}`,

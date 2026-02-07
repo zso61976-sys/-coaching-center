@@ -109,7 +109,7 @@ export default function BiometricPage() {
     model: '',
     location: '',
     ipAddress: '',
-    timezoneOffset: 0,
+    timezoneOffset: 4,
   });
 
   const [editDevice, setEditDevice] = useState({
@@ -118,7 +118,7 @@ export default function BiometricPage() {
     location: '',
     ipAddress: '',
     status: '',
-    timezoneOffset: 0,
+    timezoneOffset: 4,
   });
 
   const fetchDevices = async () => {
@@ -571,7 +571,7 @@ export default function BiometricPage() {
                   <td className="px-6 py-4 text-sm text-gray-500">{device.location || '-'}</td>
                   <td className="px-6 py-4 text-sm font-mono text-gray-500">
                     {(() => {
-                      const gmt = 4 + device.timezoneOffset;
+                      const gmt = device.timezoneOffset;
                       return gmt >= 0 ? `GMT+${gmt}` : `GMT${gmt}`;
                     })()}
                   </td>
@@ -875,27 +875,29 @@ export default function BiometricPage() {
                   onChange={(e) => setNewDevice({ ...newDevice, timezoneOffset: parseFloat(e.target.value) })}
                   className="w-full border rounded-lg px-3 py-2"
                 >
-                  <option value="-4">GMT+0 (UTC)</option>
-                  <option value="-3">GMT+1</option>
-                  <option value="-2">GMT+2</option>
-                  <option value="-1">GMT+3</option>
-                  <option value="0">GMT+4 (UAE - Same as server)</option>
-                  <option value="1">GMT+5 (Pakistan)</option>
-                  <option value="1.5">GMT+5:30 (India)</option>
-                  <option value="2">GMT+6 (Bangladesh)</option>
-                  <option value="4">GMT+8 (Singapore/China)</option>
-                  <option value="5">GMT+9 (Japan/Korea)</option>
-                  <option value="6">GMT+10 (Sydney)</option>
-                  <option value="-5">GMT-1</option>
-                  <option value="-6">GMT-2</option>
-                  <option value="-7">GMT-3</option>
-                  <option value="-8">GMT-4 (Eastern US)</option>
-                  <option value="-9">GMT-5 (Central US)</option>
-                  <option value="-10">GMT-6 (Mountain US)</option>
-                  <option value="-11">GMT-7 (Pacific US)</option>
-                  <option value="-12">GMT-8</option>
+                  <option value="-8">GMT-8 (Pacific US)</option>
+                  <option value="-7">GMT-7 (Mountain US)</option>
+                  <option value="-6">GMT-6 (Central US)</option>
+                  <option value="-5">GMT-5 (Eastern US)</option>
+                  <option value="-4">GMT-4</option>
+                  <option value="-3">GMT-3</option>
+                  <option value="-2">GMT-2</option>
+                  <option value="-1">GMT-1</option>
+                  <option value="0">GMT+0 (UTC)</option>
+                  <option value="1">GMT+1</option>
+                  <option value="2">GMT+2</option>
+                  <option value="3">GMT+3</option>
+                  <option value="4">GMT+4 (UAE/Dubai)</option>
+                  <option value="5">GMT+5 (Pakistan)</option>
+                  <option value="5.5">GMT+5:30 (India)</option>
+                  <option value="6">GMT+6 (Bangladesh)</option>
+                  <option value="7">GMT+7 (Thailand)</option>
+                  <option value="8">GMT+8 (Singapore/China)</option>
+                  <option value="9">GMT+9 (Japan/Korea)</option>
+                  <option value="10">GMT+10 (Sydney)</option>
+                  <option value="12">GMT+12 (New Zealand)</option>
                 </select>
-                <p className="text-xs text-gray-500 mt-1">Server is in GMT+4 (UAE). Select the device&apos;s local timezone.</p>
+                <p className="text-xs text-gray-500 mt-1">Select the device&apos;s local timezone.</p>
               </div>
               <div className="flex gap-3 justify-end">
                 <button
@@ -989,27 +991,29 @@ export default function BiometricPage() {
                   onChange={(e) => setEditDevice({ ...editDevice, timezoneOffset: parseFloat(e.target.value) })}
                   className="w-full border rounded-lg px-3 py-2"
                 >
-                  <option value="-4">GMT+0 (UTC)</option>
-                  <option value="-3">GMT+1</option>
-                  <option value="-2">GMT+2</option>
-                  <option value="-1">GMT+3</option>
-                  <option value="0">GMT+4 (UAE - Same as server)</option>
-                  <option value="1">GMT+5 (Pakistan)</option>
-                  <option value="1.5">GMT+5:30 (India)</option>
-                  <option value="2">GMT+6 (Bangladesh)</option>
-                  <option value="4">GMT+8 (Singapore/China)</option>
-                  <option value="5">GMT+9 (Japan/Korea)</option>
-                  <option value="6">GMT+10 (Sydney)</option>
-                  <option value="-5">GMT-1</option>
-                  <option value="-6">GMT-2</option>
-                  <option value="-7">GMT-3</option>
-                  <option value="-8">GMT-4 (Eastern US)</option>
-                  <option value="-9">GMT-5 (Central US)</option>
-                  <option value="-10">GMT-6 (Mountain US)</option>
-                  <option value="-11">GMT-7 (Pacific US)</option>
-                  <option value="-12">GMT-8</option>
+                  <option value="-8">GMT-8 (Pacific US)</option>
+                  <option value="-7">GMT-7 (Mountain US)</option>
+                  <option value="-6">GMT-6 (Central US)</option>
+                  <option value="-5">GMT-5 (Eastern US)</option>
+                  <option value="-4">GMT-4</option>
+                  <option value="-3">GMT-3</option>
+                  <option value="-2">GMT-2</option>
+                  <option value="-1">GMT-1</option>
+                  <option value="0">GMT+0 (UTC)</option>
+                  <option value="1">GMT+1</option>
+                  <option value="2">GMT+2</option>
+                  <option value="3">GMT+3</option>
+                  <option value="4">GMT+4 (UAE/Dubai)</option>
+                  <option value="5">GMT+5 (Pakistan)</option>
+                  <option value="5.5">GMT+5:30 (India)</option>
+                  <option value="6">GMT+6 (Bangladesh)</option>
+                  <option value="7">GMT+7 (Thailand)</option>
+                  <option value="8">GMT+8 (Singapore/China)</option>
+                  <option value="9">GMT+9 (Japan/Korea)</option>
+                  <option value="10">GMT+10 (Sydney)</option>
+                  <option value="12">GMT+12 (New Zealand)</option>
                 </select>
-                <p className="text-xs text-gray-500 mt-1">Server is in GMT+4 (UAE). Select the device&apos;s local timezone.</p>
+                <p className="text-xs text-gray-500 mt-1">Select the device&apos;s local timezone.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
