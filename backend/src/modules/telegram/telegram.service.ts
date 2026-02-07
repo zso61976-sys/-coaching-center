@@ -73,6 +73,7 @@ export class TelegramService {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+      timeZone: 'Asia/Dubai',
     });
 
     return `✅ <b>Check-in Alert</b>
@@ -93,6 +94,7 @@ export class TelegramService {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+      timeZone: 'Asia/Dubai',
     });
 
     const hours = Math.floor(data.durationMinutes / 60);
@@ -118,6 +120,7 @@ export class TelegramService {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
+      timeZone: 'Asia/Dubai',
     });
 
     return `ℹ️ <b>Auto Check-out</b>
