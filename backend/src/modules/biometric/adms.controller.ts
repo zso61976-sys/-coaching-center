@@ -31,13 +31,14 @@ export class AdmsController {
       return res.status(403).send(`ERROR: ${result.message}`);
     }
 
-    // Get device timezone offset for this device
+    // Get device timezone offset (absolute UTC offset, e.g. 4 for Dubai/Gulf, 5 for Pakistan)
     const device = await this.biometricService.getDeviceBySerial(serialNumber);
-    const offsetHours = device?.timezoneOffset ?? 0;
+    const deviceUtcOffset = device?.timezoneOffset ?? 4; // Default to Gulf Standard Time (UTC+4)
 
-    // Calculate device local time: server local time + offset adjustment
+    // Calculate device local time from UTC (server-timezone-independent)
     const now = new Date();
-    const targetTime = new Date(now.getTime() + (offsetHours * 3600000));
+    const utcMs = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const targetTime = new Date(utcMs + (deviceUtcOffset * 3600000));
     const year = targetTime.getFullYear();
     const month = String(targetTime.getMonth() + 1).padStart(2, '0');
     const day = String(targetTime.getDate()).padStart(2, '0');
@@ -46,16 +47,10 @@ export class AdmsController {
     const seconds = String(targetTime.getSeconds()).padStart(2, '0');
     const serverTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 
-    // Get server's timezone offset (hours from UTC)
-    // For UAE/Dubai (Arabian Standard Time), this is +4
-    const serverTzOffsetMinutes = -new Date().getTimezoneOffset();
-    const serverTzOffsetHours = Math.round(serverTzOffsetMinutes / 60);
+    // Device timezone is its direct UTC offset
+    const deviceTzHours = deviceUtcOffset;
 
-    // Device's target timezone = server timezone + device offset
-    // e.g., Server is GMT+4, device offset is +1 for Pakistan -> device timezone is GMT+5
-    const deviceTzHours = serverTzOffsetHours + offsetHours;
-
-    this.logger.log(`Sending ServerTime=${serverTime} to device ${serialNumber} (offset=${offsetHours}h, deviceTZ=GMT+${deviceTzHours})`);
+    this.logger.log(`Sending ServerTime=${serverTime} to device ${serialNumber} (UTC+${deviceTzHours})`);
 
     const response = [
       `GET OPTION FROM: ${serialNumber}`,

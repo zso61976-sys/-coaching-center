@@ -70,7 +70,7 @@ export class BiometricService {
         model: dto.model,
         location: dto.location,
         ipAddress: dto.ipAddress,
-        timezoneOffset: dto.timezoneOffset ?? 0,
+        timezoneOffset: dto.timezoneOffset ?? 4,
         status: 'active',
       },
     });

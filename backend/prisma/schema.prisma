@@ -301,7 +301,7 @@ model BiometricDevice {
   location     String?   @db.VarChar(255)
   ipAddress    String?   @map("ip_address") @db.VarChar(45)
   status          String    @default("active") @db.VarChar(20)
-  timezoneOffset  Float     @default(0) @map("timezone_offset")
+  timezoneOffset  Float     @default(4) @map("timezone_offset")
   lastSyncAt      DateTime? @map("last_sync_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
