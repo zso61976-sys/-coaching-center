@@ -35,20 +35,23 @@ export class AdmsController {
     const device = await this.biometricService.getDeviceBySerial(serialNumber);
     const deviceUtcOffset = device?.timezoneOffset ?? 4; // Default to Gulf Standard Time (UTC+4)
 
-    // Send ServerTime as UTC — the device uses TimeZone param to calculate its local time
+    // Calculate device's local time from UTC (server-timezone-independent)
+    // ZK devices set their clock directly to ServerTime — no extra math on device side
     const now = new Date();
-    const year = now.getUTCFullYear();
-    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(now.getUTCDate()).padStart(2, '0');
-    const hours = String(now.getUTCHours()).padStart(2, '0');
-    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
-    const seconds = String(now.getUTCSeconds()).padStart(2, '0');
+    const deviceLocalMs = now.getTime() + (deviceUtcOffset * 3600000);
+    const deviceTime = new Date(deviceLocalMs);
+    const year = deviceTime.getUTCFullYear();
+    const month = String(deviceTime.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(deviceTime.getUTCDate()).padStart(2, '0');
+    const hours = String(deviceTime.getUTCHours()).padStart(2, '0');
+    const minutes = String(deviceTime.getUTCMinutes()).padStart(2, '0');
+    const seconds = String(deviceTime.getUTCSeconds()).padStart(2, '0');
     const serverTime = `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
 
-    // Device timezone is its direct UTC offset
-    const deviceTzHours = deviceUtcOffset;
+    // TimeZone=0 so the device does not apply any additional offset
+    const deviceTzHours = 0;
 
-    this.logger.log(`Sending ServerTime=${serverTime} (UTC) to device ${serialNumber}, TimeZone=${deviceTzHours}`);
+    this.logger.log(`Sending ServerTime=${serverTime} (device local UTC+${deviceUtcOffset}) to ${serialNumber}, TimeZone=${deviceTzHours}`);
 
     const response = [
       `GET OPTION FROM: ${serialNumber}`,
