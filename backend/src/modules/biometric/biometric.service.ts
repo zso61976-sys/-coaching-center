@@ -262,7 +262,7 @@ export class BiometricService {
         data: {
           deviceId: device.id,
           deviceUserId: data.PIN,
-          punchTime: this.parseAttTime(data.AttTime),
+          punchTime: this.parseAttTime(data.AttTime, device.timezoneOffset),
           punchType: 'unknown',
           verifyMethod: this.getVerifyMethod(data.Verify),
           rawData: data as any,
@@ -288,7 +288,7 @@ export class BiometricService {
         data: {
           deviceId: device.id,
           deviceUserId: data.PIN,
-          punchTime: this.parseAttTime(data.AttTime),
+          punchTime: this.parseAttTime(data.AttTime, device.timezoneOffset),
           punchType: 'unknown',
           verifyMethod: this.getVerifyMethod(data.Verify),
           rawData: data as any,
@@ -300,7 +300,7 @@ export class BiometricService {
       return { success: false, message: 'Student inactive' };
     }
 
-    const punchTime = this.parseAttTime(data.AttTime);
+    const punchTime = this.parseAttTime(data.AttTime, device.timezoneOffset);
 
     const isDuplicate = await this.checkDuplicatePunch(device.id, data.PIN, punchTime);
     if (isDuplicate) {
@@ -440,7 +440,19 @@ export class BiometricService {
 
   // ==================== Helper Methods ====================
 
-  private parseAttTime(attTime: string): Date {
+  private parseAttTime(attTime: string, deviceUtcOffset?: number): Date {
+    // Device sends time in its local timezone (e.g., Dubai UTC+4)
+    // Parse as UTC by appending timezone offset so the stored UTC value is correct
+    if (deviceUtcOffset !== undefined) {
+      const sign = deviceUtcOffset >= 0 ? '+' : '-';
+      const absHours = Math.floor(Math.abs(deviceUtcOffset));
+      const absMinutes = Math.round((Math.abs(deviceUtcOffset) - absHours) * 60);
+      const tzSuffix = `${sign}${String(absHours).padStart(2, '0')}:${String(absMinutes).padStart(2, '0')}`;
+      const parsed = new Date(attTime.replace(' ', 'T') + tzSuffix);
+      if (!isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
     const parsed = new Date(attTime.replace(' ', 'T'));
     if (isNaN(parsed.getTime())) {
       return new Date();
