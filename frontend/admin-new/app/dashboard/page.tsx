@@ -30,6 +30,8 @@ interface Student {
   feesPaid: number;
   totalFees: number;
   feeDueDate: string;
+  discount: number;
+  finalAmount: number;
   parents?: Parent[];
   enrolledDeviceIds?: string[];
 }
@@ -39,6 +41,8 @@ interface StudentFeeData {
     subjects: string[];
     feesPaid: number;
     feeDueDate: string;
+    discount: number;
+    finalAmount: number;
   };
 }
 
@@ -193,6 +197,8 @@ export default function DashboardPage() {
     selectedDevices: [] as string[],
     feesPaid: 0,
     feeDueDate: '',
+    discount: 0,
+    finalAmount: 0,
     parentName: '',
     parentPhone: '',
     parentTelegramChatId: '',
@@ -326,7 +332,7 @@ export default function DashboardPage() {
 
         setStudents(studentsList.map((s: any) => {
           const studentCode = s.student_code;
-          const studentFee = feeData[studentCode] || { subjects: [], feesPaid: 0, feeDueDate: '' };
+          const studentFee = feeData[studentCode] || { subjects: [], feesPaid: 0, feeDueDate: '', discount: 0, finalAmount: 0 };
           return {
             id: s.student_id,
             studentId: studentCode,
@@ -339,6 +345,8 @@ export default function DashboardPage() {
             feesPaid: studentFee.feesPaid,
             totalFees: 0,
             feeDueDate: studentFee.feeDueDate,
+            discount: studentFee.discount || 0,
+            finalAmount: studentFee.finalAmount || 0,
             parents: s.parents || [],
             enrolledDeviceIds: s.enrolled_device_ids || [],
           };
@@ -848,6 +856,14 @@ export default function DashboardPage() {
     }, 0);
   };
 
+  const calculateActualAmount = () => {
+    const total = calculateTotalFees();
+    const discountAmount = Math.round(total * formData.discount / 100);
+    const calculated = total - discountAmount;
+    // If admin has set a final amount override, use that
+    return formData.finalAmount > 0 ? formData.finalAmount : calculated;
+  };
+
   const handleStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -898,12 +914,14 @@ export default function DashboardPage() {
         subjects: formData.selectedSubjects,
         feesPaid: 0,
         feeDueDate: '',
+        discount: formData.discount,
+        finalAmount: formData.finalAmount,
       };
       localStorage.setItem('studentFeeData', JSON.stringify(feeData));
       setStudentFeeData(feeData);
 
       setSuccess(`Student created! ID: ${formData.studentId}, Subjects: ${selectedSubjectNames.join(', ')}, Total Fee: Rs. ${calculateTotalFees()}`);
-      setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', parentName: '', parentPhone: '', parentTelegramChatId: '' });
+      setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', discount: 0, finalAmount: 0, parentName: '', parentPhone: '', parentTelegramChatId: '' });
       setShowStudentForm(false);
       fetchStudents();
     } catch (err: any) {
@@ -966,7 +984,7 @@ export default function DashboardPage() {
     // Load student fee data from localStorage
     const savedFeeData = localStorage.getItem('studentFeeData');
     const feeData: StudentFeeData = savedFeeData ? JSON.parse(savedFeeData) : {};
-    const studentFee = feeData[student.studentId] || { subjects: [], feesPaid: 0, feeDueDate: '' };
+    const studentFee = feeData[student.studentId] || { subjects: [], feesPaid: 0, feeDueDate: '', discount: 0, finalAmount: 0 };
 
     // Get primary parent info if exists
     const primaryParent = student.parents?.find(p => p.is_primary) || student.parents?.[0];
@@ -980,6 +998,8 @@ export default function DashboardPage() {
       selectedDevices: student.enrolledDeviceIds || [],
       feesPaid: studentFee.feesPaid,
       feeDueDate: studentFee.feeDueDate,
+      discount: studentFee.discount || 0,
+      finalAmount: studentFee.finalAmount || 0,
       parentName: primaryParent?.full_name || '',
       parentPhone: primaryParent?.phone || '',
       parentTelegramChatId: primaryParent?.telegram_chat_id || '',
@@ -1028,6 +1048,8 @@ export default function DashboardPage() {
         subjects: formData.selectedSubjects,
         feesPaid: formData.feesPaid,
         feeDueDate: formData.feeDueDate,
+        discount: formData.discount,
+        finalAmount: formData.finalAmount,
       };
       localStorage.setItem('studentFeeData', JSON.stringify(feeData));
       setStudentFeeData(feeData);
@@ -1037,7 +1059,7 @@ export default function DashboardPage() {
       ).filter(Boolean);
 
       setSuccess(`Student "${formData.name}" updated. Subjects: ${selectedSubjectNames.join(', ') || 'None'}, Fees Paid: Rs. ${formData.feesPaid}`);
-      setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', parentName: '', parentPhone: '', parentTelegramChatId: '' });
+      setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', discount: 0, finalAmount: 0, parentName: '', parentPhone: '', parentTelegramChatId: '' });
       setEditingStudent(null);
       setShowStudentForm(false);
       fetchStudents();
@@ -1312,7 +1334,7 @@ export default function DashboardPage() {
                   setShowStudentForm(!showStudentForm);
                   if (showStudentForm) {
                     setEditingStudent(null);
-                    setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', parentName: '', parentPhone: '', parentTelegramChatId: '' });
+                    setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', discount: 0, finalAmount: 0, parentName: '', parentPhone: '', parentTelegramChatId: '' });
                   }
                 }}
                 className="px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
@@ -1505,14 +1527,58 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* Total Fees */}
+                  {/* Total Fees & Discount */}
                   {formData.selectedSubjects.length > 0 && (
                     <div className="mb-4 p-4 bg-blue-50 rounded-lg">
-                      <div className="text-lg font-bold text-blue-800">
-                        Total Monthly Fee: Rs. {calculateTotalFees()}
+                      <div className="flex items-center justify-between mb-2">
+                        <div>
+                          <div className="text-lg font-bold text-blue-800">
+                            Total Monthly Fee: Rs. {calculateTotalFees()}
+                          </div>
+                          <div className="text-sm text-blue-600">
+                            {formData.selectedSubjects.length} subject(s) selected
+                          </div>
+                        </div>
                       </div>
-                      <div className="text-sm text-blue-600">
-                        {formData.selectedSubjects.length} subject(s) selected
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 pt-3 border-t border-blue-200">
+                        <div>
+                          <label className="block text-sm font-medium text-blue-700 mb-1">Discount (%)</label>
+                          <input
+                            type="number"
+                            value={formData.discount}
+                            onChange={(e) => {
+                              const discount = Math.min(100, Math.max(0, parseInt(e.target.value) || 0));
+                              setFormData({ ...formData, discount, finalAmount: 0 });
+                            }}
+                            className="w-full px-4 py-2 border border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                            placeholder="0"
+                            min="0"
+                            max="100"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-blue-700 mb-1">
+                            Final Amount Due (Rs.)
+                            {!hasRole('admin') && <span className="text-xs text-gray-500 ml-1">(Admin only)</span>}
+                          </label>
+                          <input
+                            type="number"
+                            value={calculateActualAmount()}
+                            onChange={(e) => setFormData({ ...formData, finalAmount: parseInt(e.target.value) || 0 })}
+                            className={`w-full px-4 py-2 border rounded-lg font-bold text-lg ${
+                              hasRole('admin')
+                                ? 'border-blue-300 focus:ring-2 focus:ring-blue-500 bg-white'
+                                : 'border-gray-200 bg-gray-100 text-gray-700 cursor-not-allowed'
+                            }`}
+                            readOnly={!hasRole('admin')}
+                            min="0"
+                          />
+                          {formData.discount > 0 && (
+                            <p className="text-xs text-blue-600 mt-1">
+                              Discount: Rs. {Math.round(calculateTotalFees() * formData.discount / 100)} ({formData.discount}% off)
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1546,10 +1612,20 @@ export default function DashboardPage() {
                   {/* Fee Summary for editing */}
                   {editingStudent && formData.selectedSubjects.length > 0 && (
                     <div className="mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                      <div className="grid grid-cols-2 gap-4">
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                         <div>
                           <div className="text-sm text-yellow-700">Total Monthly Fee</div>
                           <div className="text-xl font-bold text-yellow-800">Rs. {calculateTotalFees()}</div>
+                        </div>
+                        {formData.discount > 0 && (
+                          <div>
+                            <div className="text-sm text-yellow-700">Discount</div>
+                            <div className="text-xl font-bold text-orange-600">{formData.discount}%</div>
+                          </div>
+                        )}
+                        <div>
+                          <div className="text-sm text-yellow-700">Amount Due</div>
+                          <div className="text-xl font-bold text-blue-700">Rs. {calculateActualAmount()}</div>
                         </div>
                         <div>
                           <div className="text-sm text-yellow-700">Fees Paid</div>
@@ -1557,8 +1633,8 @@ export default function DashboardPage() {
                         </div>
                         <div>
                           <div className="text-sm text-yellow-700">Balance Due</div>
-                          <div className={`text-xl font-bold ${calculateTotalFees() - formData.feesPaid > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                            Rs. {calculateTotalFees() - formData.feesPaid}
+                          <div className={`text-xl font-bold ${calculateActualAmount() - formData.feesPaid > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                            Rs. {calculateActualAmount() - formData.feesPaid}
                           </div>
                         </div>
                         <div>
@@ -1618,6 +1694,9 @@ export default function DashboardPage() {
                           const subject = subjects.find(s => s.id === subjectId);
                           return total + (subject?.fee || 0);
                         }, 0);
+                        const studentDiscount = student.discount || 0;
+                        const discountAmount = Math.round(studentTotalFee * studentDiscount / 100);
+                        const studentActualAmount = student.finalAmount > 0 ? student.finalAmount : studentTotalFee - discountAmount;
                         const isDueDatePassed = student.feeDueDate && new Date(student.feeDueDate) < new Date();
 
                         return (
@@ -1653,7 +1732,12 @@ export default function DashboardPage() {
                                 <div className="font-medium text-green-600">Rs. {student.feesPaid}</div>
                                 {studentTotalFee > 0 && (
                                   <div className="text-xs text-gray-500">
-                                    of Rs. {studentTotalFee}
+                                    of Rs. {studentActualAmount}
+                                    {studentDiscount > 0 && (
+                                      <span className="ml-1 px-1 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">
+                                        {studentDiscount}% off
+                                      </span>
+                                    )}
                                   </div>
                                 )}
                               </div>
