@@ -63,7 +63,7 @@ export class AdmsController {
       `Delay=10`,
       `TransTimes=00:00;14:05`,
       `TransInterval=1`,
-      `TransFlag=TransData AttLog OpLog`,
+      `TransFlag=TransData AttLog OpLog BioData`,
       `TimeZone=${deviceTzHours}`,
       `Realtime=1`,
       `Encrypt=0`,
@@ -124,6 +124,17 @@ export class AdmsController {
 
     if (table === 'OPERLOG') {
       this.logger.log(`OPERLOG received from ${serialNumber}: ${rawBody}`);
+      return res.send('OK');
+    }
+
+    // Handle fingerprint template uploads (BIODATA or FINGERTMP)
+    if (table === 'BIODATA' || table === 'FINGERTMP') {
+      this.logger.log(`Fingerprint data received from ${serialNumber}: ${rawBody.substring(0, 200)}...`);
+      try {
+        await this.biometricService.handleFingerprintUpload(serialNumber, rawBody);
+      } catch (error) {
+        this.logger.error(`Error processing fingerprint data: ${error.message}`);
+      }
       return res.send('OK');
     }
 
@@ -226,9 +237,28 @@ export class AdmsController {
     @Query('SN') serialNumber: string,
     @Query('table') table: string,
     @Body() body: any,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     this.logger.log(`ADMS FData: SN=${serialNumber}, table=${table}`);
+
+    let rawBody = '';
+    if (typeof body === 'string') {
+      rawBody = body;
+    } else if (Buffer.isBuffer(body)) {
+      rawBody = body.toString('utf-8');
+    } else if (req.body) {
+      rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    }
+
+    if (rawBody) {
+      this.logger.log(`FData body (first 200 chars): ${rawBody.substring(0, 200)}`);
+      try {
+        await this.biometricService.handleFingerprintUpload(serialNumber, rawBody);
+      } catch (error) {
+        this.logger.error(`Error processing fdata: ${error.message}`);
+      }
+    }
 
     return res.send('OK');
   }

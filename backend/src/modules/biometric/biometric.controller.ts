@@ -266,4 +266,59 @@ export class BiometricController {
       message: `Synced ${results.length} enrollment(s) to devices`,
     };
   }
+
+  // ==================== Fingerprint Sync Endpoints ====================
+
+  @Post('fingerprint/download/:deviceId/:pin')
+  async downloadFingerprint(
+    @Request() req: any,
+    @Param('deviceId') deviceId: string,
+    @Param('pin') pin: string,
+  ) {
+    const tenantId = req.user.tenantId;
+    const result = await this.biometricService.downloadFingerprintFromDevice(tenantId, deviceId, pin);
+    return {
+      success: true,
+      data: result,
+      message: 'Download fingerprint command queued. The device will upload the template on next sync.',
+    };
+  }
+
+  @Post('fingerprint/sync/:pin')
+  async syncFingerprints(
+    @Request() req: any,
+    @Param('pin') pin: string,
+  ) {
+    const tenantId = req.user.tenantId;
+    const result = await this.biometricService.syncFingerprintsToAllDevices(tenantId, pin);
+    return {
+      success: true,
+      data: result,
+      message: result.synced > 0
+        ? `Fingerprint sync queued for ${result.synced} device(s)`
+        : result.message || 'No fingerprints to sync',
+    };
+  }
+
+  @Get('fingerprint/:pin')
+  async getFingerprintStatus(
+    @Request() req: any,
+    @Param('pin') pin: string,
+  ) {
+    const tenantId = req.user.tenantId;
+    const templates = await this.biometricService.getFingerprintTemplates(tenantId, pin);
+    return {
+      success: true,
+      data: {
+        pin,
+        templateCount: templates.length,
+        templates: templates.map(t => ({
+          fingerIndex: t.fingerIndex,
+          size: t.size,
+          sourceDeviceId: t.sourceDeviceId,
+          createdAt: t.createdAt,
+        })),
+      },
+    };
+  }
 }

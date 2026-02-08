@@ -38,15 +38,27 @@ export class TeachersService {
     if (!attendanceId) {
       attendanceId = await this.generateAttendanceId(data.tenantId);
     } else {
-      // Check if attendanceId already exists
-      const existingAttId = await this.prisma.teacher.findFirst({
-        where: { tenantId: data.tenantId, attendanceId },
-      });
-      if (existingAttId) {
+      // Check if attendanceId already exists in teachers or students
+      const [existingTeacher, existingStudent] = await Promise.all([
+        this.prisma.teacher.findFirst({
+          where: { tenantId: data.tenantId, attendanceId },
+        }),
+        this.prisma.student.findFirst({
+          where: { tenantId: data.tenantId, attendanceId },
+        }),
+      ]);
+      if (existingTeacher) {
         throw new ConflictException({
           success: false,
           error: 'DUPLICATE_ATTENDANCE_ID',
-          message: 'Attendance ID already exists',
+          message: 'Attendance ID already exists (used by another teacher)',
+        });
+      }
+      if (existingStudent) {
+        throw new ConflictException({
+          success: false,
+          error: 'DUPLICATE_ATTENDANCE_ID',
+          message: 'Attendance ID already exists (used by a student)',
         });
       }
     }
@@ -135,6 +147,22 @@ export class TeachersService {
             status: 'pending',
           },
         });
+
+        // Auto-push stored fingerprint templates to this device
+        const fpTemplates = await this.prisma.fingerprintTemplate.findMany({
+          where: { tenantId, pin: attendanceId },
+        });
+        for (const tpl of fpTemplates) {
+          const fpCommand = `DATA UPDATE BIODATA PIN=${attendanceId}\tNo=${tpl.fingerIndex}\tIndex=${tpl.fingerIndex}\tValid=1\tDuress=0\tType=0\tMajorVer=0\tMinorVer=0\tFormat=0\tTmp=${tpl.template}`;
+          await this.prisma.deviceCommand.create({
+            data: {
+              deviceId: device.id,
+              commandType: 'upload_fp',
+              commandData: fpCommand,
+              status: 'pending',
+            },
+          });
+        }
       } catch (error) {
         // Ignore duplicate enrollment errors
         console.log(`Auto-enrollment skipped for device ${device.id}: ${error.message}`);

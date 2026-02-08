@@ -384,3 +384,20 @@ model DeviceCommand {
   @@index([createdAt])
   @@map("device_commands")
 }
+
+model FingerprintTemplate {
+  id             String   @id @default(uuid()) @db.Uuid
+  tenantId       String   @map("tenant_id") @db.Uuid
+  pin            String   @db.VarChar(50)
+  fingerIndex    Int      @default(0) @map("finger_index")
+  template       String   @db.Text
+  size           Int      @default(0)
+  valid          Int      @default(1)
+  sourceDeviceId String   @map("source_device_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, pin, fingerIndex])
+  @@index([tenantId, pin])
+  @@map("fingerprint_templates")
+}

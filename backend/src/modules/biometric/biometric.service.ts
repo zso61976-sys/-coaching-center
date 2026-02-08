@@ -926,4 +926,196 @@ export class BiometricService {
       take: 100,
     });
   }
+
+  // ==================== Fingerprint Template Management ====================
+
+  async handleFingerprintUpload(serialNumber: string, rawBody: string) {
+    const device = await this.prisma.biometricDevice.findUnique({
+      where: { serialNumber },
+    });
+
+    if (!device) {
+      this.logger.warn(`Fingerprint from unknown device: ${serialNumber}`);
+      return;
+    }
+
+    // Parse fingerprint data lines
+    // Format: PIN\tFID\tSize\tValid\tTMP
+    // Or: PIN=xxx\tFID=xxx\tTMP=xxx
+    const lines = rawBody.split('\n').filter(line => line.trim());
+
+    for (const line of lines) {
+      try {
+        let pin = '', fid = '0', size = '0', valid = '1', tmp = '';
+
+        if (line.includes('=')) {
+          // Key=Value format
+          const parts = line.split('\t');
+          for (const part of parts) {
+            const [key, ...valueParts] = part.split('=');
+            const value = valueParts.join('=');
+            const k = key.trim().toUpperCase();
+            if (k === 'PIN') pin = value.trim();
+            else if (k === 'FID' || k === 'NO' || k === 'INDEX') fid = value.trim();
+            else if (k === 'SIZE') size = value.trim();
+            else if (k === 'VALID') valid = value.trim();
+            else if (k === 'TMP' || k === 'TEMPLATE') tmp = value.trim();
+          }
+        } else {
+          // Tab-separated positional format: PIN\tFID\tSize\tValid\tTMP
+          const parts = line.split('\t');
+          if (parts.length >= 5) {
+            pin = parts[0].trim();
+            fid = parts[1].trim();
+            size = parts[2].trim();
+            valid = parts[3].trim();
+            tmp = parts[4].trim();
+          }
+        }
+
+        if (!pin || !tmp) {
+          this.logger.warn(`Skipping fingerprint line - missing PIN or TMP: ${line.substring(0, 100)}`);
+          continue;
+        }
+
+        this.logger.log(`Storing fingerprint: PIN=${pin}, FID=${fid}, Size=${size} from device ${serialNumber}`);
+
+        await this.prisma.fingerprintTemplate.upsert({
+          where: {
+            tenantId_pin_fingerIndex: {
+              tenantId: device.tenantId,
+              pin,
+              fingerIndex: parseInt(fid) || 0,
+            },
+          },
+          create: {
+            tenantId: device.tenantId,
+            pin,
+            fingerIndex: parseInt(fid) || 0,
+            template: tmp,
+            size: parseInt(size) || tmp.length,
+            valid: parseInt(valid) || 1,
+            sourceDeviceId: device.id,
+          },
+          update: {
+            template: tmp,
+            size: parseInt(size) || tmp.length,
+            valid: parseInt(valid) || 1,
+            sourceDeviceId: device.id,
+          },
+        });
+      } catch (error) {
+        this.logger.error(`Error parsing fingerprint line: ${error.message}`);
+      }
+    }
+  }
+
+  async getFingerprintTemplates(tenantId: string, pin: string) {
+    return this.prisma.fingerprintTemplate.findMany({
+      where: { tenantId, pin },
+    });
+  }
+
+  async queueDownloadFingerprintCommand(deviceId: string, pin: string) {
+    const commandData = `DATA QUERY BIODATA PIN=${pin}`;
+
+    return this.prisma.deviceCommand.create({
+      data: {
+        deviceId,
+        commandType: 'download_fp',
+        commandData,
+        status: 'pending',
+      },
+    });
+  }
+
+  async queueUploadFingerprintCommand(deviceId: string, pin: string, fingerIndex: number, template: string, size: number) {
+    const commandData = `DATA UPDATE BIODATA PIN=${pin}\tNo=${fingerIndex}\tIndex=${fingerIndex}\tValid=1\tDuress=0\tType=0\tMajorVer=0\tMinorVer=0\tFormat=0\tTmp=${template}`;
+
+    return this.prisma.deviceCommand.create({
+      data: {
+        deviceId,
+        commandType: 'upload_fp',
+        commandData,
+        status: 'pending',
+      },
+    });
+  }
+
+  async syncFingerprintsToDevice(tenantId: string, targetDeviceId: string, pin: string) {
+    const templates = await this.getFingerprintTemplates(tenantId, pin);
+
+    if (templates.length === 0) {
+      return { synced: 0, message: 'No fingerprint templates found for this user' };
+    }
+
+    const results = [];
+    for (const tpl of templates) {
+      const command = await this.queueUploadFingerprintCommand(
+        targetDeviceId,
+        pin,
+        tpl.fingerIndex,
+        tpl.template,
+        tpl.size,
+      );
+      results.push({ fingerIndex: tpl.fingerIndex, commandId: command.id });
+    }
+
+    return { synced: results.length, commands: results };
+  }
+
+  async syncFingerprintsToAllDevices(tenantId: string, pin: string) {
+    const templates = await this.getFingerprintTemplates(tenantId, pin);
+
+    if (templates.length === 0) {
+      return { synced: 0, message: 'No fingerprint templates found' };
+    }
+
+    // Find all devices this user is enrolled on
+    const enrollments = await this.prisma.biometricEnrollment.findMany({
+      where: {
+        deviceUserId: pin,
+        status: 'active',
+        device: { tenantId, status: 'active' },
+      },
+      include: { device: true },
+    });
+
+    const results = [];
+    for (const enrollment of enrollments) {
+      // Skip the source device (fingerprints already there)
+      const isSource = templates.some(t => t.sourceDeviceId === enrollment.deviceId);
+      if (isSource) continue;
+
+      for (const tpl of templates) {
+        const command = await this.queueUploadFingerprintCommand(
+          enrollment.deviceId,
+          pin,
+          tpl.fingerIndex,
+          tpl.template,
+          tpl.size,
+        );
+        results.push({
+          deviceName: enrollment.device.name,
+          fingerIndex: tpl.fingerIndex,
+          commandId: command.id,
+        });
+      }
+    }
+
+    return { synced: results.length, commands: results };
+  }
+
+  async downloadFingerprintFromDevice(tenantId: string, deviceId: string, pin: string) {
+    const device = await this.prisma.biometricDevice.findFirst({
+      where: { id: deviceId, tenantId },
+    });
+
+    if (!device) {
+      throw new NotFoundException('Device not found');
+    }
+
+    const command = await this.queueDownloadFingerprintCommand(deviceId, pin);
+    return { message: 'Download fingerprint command queued', commandId: command.id };
+  }
 }

@@ -417,6 +417,46 @@ export default function BiometricPage() {
     }
   };
 
+  // Download fingerprint templates from a device
+  const handleDownloadFingerprint = async (deviceId: string, pin: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/biometric/fingerprint/download/${deviceId}/${pin}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert('Download fingerprint command queued. Device will upload templates on next sync.');
+      } else {
+        setError(data.message || 'Failed to download fingerprint');
+      }
+    } catch (err) {
+      setError('Failed to download fingerprint');
+    }
+  };
+
+  // Sync fingerprint templates to all enrolled devices
+  const handleSyncFingerprint = async (pin: string) => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/biometric/fingerprint/sync/${pin}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.data.synced > 0) {
+          alert(`Fingerprint sync queued for ${data.data.synced} device(s). Devices will update on next poll.`);
+        } else {
+          alert(data.data.message || 'No fingerprint templates found. First download from a device where the user has enrolled their fingerprint.');
+        }
+      } else {
+        setError(data.message || 'Failed to sync fingerprint');
+      }
+    } catch (err) {
+      setError('Failed to sync fingerprint');
+    }
+  };
+
   const formatDateTime = (dateStr: string | null) => {
     if (!dateStr) return 'Never';
     return new Date(dateStr).toLocaleString();
@@ -764,6 +804,20 @@ export default function BiometricPage() {
                         title="Push user to device"
                       >
                         Push
+                      </button>
+                      <button
+                        onClick={() => handleDownloadFingerprint(enrollment.device.id, enrollment.deviceUserId)}
+                        className="text-blue-600 hover:text-blue-800"
+                        title="Download fingerprint from this device to server"
+                      >
+                        Get FP
+                      </button>
+                      <button
+                        onClick={() => handleSyncFingerprint(enrollment.deviceUserId)}
+                        className="text-purple-600 hover:text-purple-800"
+                        title="Sync stored fingerprints to all other devices"
+                      >
+                        Sync FP
                       </button>
                       <button
                         onClick={() => handleDeleteFromDevice(enrollment)}
