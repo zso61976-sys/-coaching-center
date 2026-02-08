@@ -696,15 +696,22 @@ export default function DashboardPage() {
       const subject = subjects.find(s => s.code === subCode || s.id === subCode);
       return sum + (subject?.fee || 0);
     }, 0);
+    const studentDiscount = student?.discount || 0;
+    const discountAmt = Math.round(totalMonthlyFee * studentDiscount / 100);
+    const actualFee = (student?.finalAmount && student.finalAmount > 0) ? student.finalAmount : (totalMonthlyFee - discountAmt);
     const totalPaidThisMonth = feeCollections
       .filter(f => f.studentId === fee.studentId && f.month === fee.month)
       .reduce((sum, f) => sum + f.amount, 0);
-    const dueAmount = totalMonthlyFee - totalPaidThisMonth;
+    const dueAmount = actualFee - totalPaidThisMonth;
 
     const subjectsList = studentSubjects.map(subCode => {
       const subject = subjects.find(s => s.code === subCode || s.id === subCode);
       return `${subject?.name || subCode} - Rs. ${subject?.fee || 0}`;
     }).join('<br>');
+
+    const discountRow = studentDiscount > 0 ? `
+            <tr><td>Discount (${studentDiscount}%):</td><td style="color: #e65100;">- Rs. ${discountAmt.toLocaleString()}</td></tr>
+            <tr style="border-top: 2px solid #000;"><td><strong>Fee After Discount:</strong></td><td><strong>Rs. ${actualFee.toLocaleString()}</strong></td></tr>` : '';
 
     const printContent = `
       <!DOCTYPE html>
@@ -742,7 +749,7 @@ export default function DashboardPage() {
             <tr><td>Class:</td><td>${student?.grade || '-'}</td></tr>
             <tr><td>Fee Month:</td><td>${new Date(fee.month + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</td></tr>
             <tr><td>Subjects:</td><td style="font-size: 12px;">${subjectsList || '-'}</td></tr>
-            <tr><td>Total Fee:</td><td>Rs. ${totalMonthlyFee.toLocaleString()}</td></tr>
+            <tr><td>Total Fee:</td><td>Rs. ${totalMonthlyFee.toLocaleString()}</td></tr>${discountRow}
             <tr><td>Payment Mode:</td><td>${fee.paymentMode.toUpperCase()}</td></tr>
           </table>
         </div>
