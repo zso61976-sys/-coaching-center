@@ -2514,12 +2514,17 @@ export default function DashboardPage() {
                         return sum + (subject?.fee || 0);
                       }, 0);
 
+                      // Apply discount
+                      const studentDiscount = student.discount || 0;
+                      const discountAmount = Math.round(totalMonthlyFee * studentDiscount / 100);
+                      const actualMonthlyFee = student.finalAmount > 0 ? student.finalAmount : (totalMonthlyFee - discountAmount);
+
                       // Calculate paid amount for this month
                       const paidThisMonth = feeCollections
                         .filter(f => f.studentId === student.studentId && f.month === feeForm.month)
                         .reduce((sum, f) => sum + f.amount, 0);
 
-                      const dueAmount = totalMonthlyFee - paidThisMonth;
+                      const dueAmount = actualMonthlyFee - paidThisMonth;
 
                       return (
                         <div className="mt-4 p-4 bg-gray-50 rounded-lg border">
@@ -2549,6 +2554,18 @@ export default function DashboardPage() {
                                   <span className="text-gray-500">Total Monthly Fee:</span>
                                   <span className="font-bold">Rs. {totalMonthlyFee.toLocaleString()}</span>
                                 </div>
+                                {studentDiscount > 0 && (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">Discount ({studentDiscount}%):</span>
+                                    <span className="font-medium text-orange-600">- Rs. {discountAmount.toLocaleString()}</span>
+                                  </div>
+                                )}
+                                {studentDiscount > 0 && (
+                                  <div className="flex justify-between text-sm">
+                                    <span className="text-gray-500">After Discount:</span>
+                                    <span className="font-bold text-blue-700">Rs. {actualMonthlyFee.toLocaleString()}</span>
+                                  </div>
+                                )}
                                 <div className="flex justify-between text-sm">
                                   <span className="text-gray-500">Already Paid:</span>
                                   <span className="font-medium text-green-600">Rs. {paidThisMonth.toLocaleString()}</span>
@@ -2628,10 +2645,13 @@ export default function DashboardPage() {
                               const subject = subjects.find(s => s.code === subCode || s.id === subCode);
                               return sum + (subject?.fee || 0);
                             }, 0);
+                            const studentDiscount = student?.discount || 0;
+                            const discountAmt = Math.round(totalMonthlyFee * studentDiscount / 100);
+                            const actualFee = (student?.finalAmount && student.finalAmount > 0) ? student.finalAmount : (totalMonthlyFee - discountAmt);
                             const totalPaidThisMonth = feeCollections
                               .filter(f2 => f2.studentId === fee.studentId && f2.month === fee.month)
                               .reduce((sum, f2) => sum + f2.amount, 0);
-                            const dueAmount = totalMonthlyFee - totalPaidThisMonth;
+                            const dueAmount = actualFee - totalPaidThisMonth;
 
                             return (
                               <tr key={fee.id} className="hover:bg-gray-50">
@@ -2642,7 +2662,10 @@ export default function DashboardPage() {
                                   <div className="text-xs text-gray-500">{fee.studentId}</div>
                                 </td>
                                 <td className="px-4 py-3 text-sm">{new Date(fee.month + '-01').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</td>
-                                <td className="px-4 py-3 text-sm">Rs. {totalMonthlyFee.toLocaleString()}</td>
+                                <td className="px-4 py-3 text-sm">
+                                  Rs. {actualFee.toLocaleString()}
+                                  {studentDiscount > 0 && <span className="text-xs text-orange-500 ml-1">({studentDiscount}% off)</span>}
+                                </td>
                                 <td className="px-4 py-3 font-bold text-green-600">Rs. {totalPaidThisMonth.toLocaleString()}</td>
                                 <td className="px-4 py-3">
                                   {dueAmount > 0 ? (
