@@ -108,24 +108,101 @@ export class StudentsService {
     return this.findById(student.id, data.tenantId);
   }
 
+  async bulkCreate(tenantId: string, branchId: string, students: Array<{
+    studentCode: string;
+    fullName: string;
+    grade?: string;
+    phone?: string;
+    parentName?: string;
+    parentPhone?: string;
+    telegramChatId?: string;
+  }>, createdBy?: string) {
+    const results: { created: number; errors: Array<{ row: number; studentCode: string; message: string }> } = {
+      created: 0,
+      errors: [],
+    };
+
+    // Get the starting attendance ID once
+    let nextAttendanceId = parseInt(await this.generateAttendanceId(tenantId));
+
+    for (let i = 0; i < students.length; i++) {
+      const s = students[i];
+      try {
+        if (!s.studentCode || !s.fullName) {
+          results.errors.push({ row: i + 2, studentCode: s.studentCode || '', message: 'Student ID and Name are required' });
+          continue;
+        }
+
+        // Check for duplicate student code
+        const existing = await this.prisma.student.findFirst({
+          where: { tenantId, studentCode: s.studentCode },
+        });
+        if (existing) {
+          results.errors.push({ row: i + 2, studentCode: s.studentCode, message: 'Student ID already exists' });
+          continue;
+        }
+
+        const attendanceId = String(nextAttendanceId);
+        nextAttendanceId++;
+
+        const student = await this.prisma.student.create({
+          data: {
+            tenantId,
+            branchId,
+            studentCode: s.studentCode,
+            attendanceId,
+            fullName: s.fullName,
+            phone: s.phone,
+            grade: s.grade,
+            createdBy,
+          },
+        });
+
+        // Create parent if provided
+        if (s.parentName && s.parentPhone) {
+          const parent = await this.prisma.parent.create({
+            data: {
+              tenantId,
+              fullName: s.parentName,
+              phone: s.parentPhone,
+              telegramChatId: s.telegramChatId || undefined,
+              telegramConnectedAt: s.telegramChatId ? new Date() : undefined,
+              notificationEnabled: s.telegramChatId ? true : undefined,
+            },
+          });
+
+          await this.prisma.studentParent.create({
+            data: {
+              studentId: student.id,
+              parentId: parent.id,
+              relationship: 'guardian',
+              isPrimary: true,
+            },
+          });
+        }
+
+        // Auto-enroll to biometric devices
+        await this.autoEnrollToBiometricDevices(tenantId, student.id, attendanceId, s.fullName);
+
+        results.created++;
+      } catch (error: any) {
+        results.errors.push({ row: i + 2, studentCode: s.studentCode || '', message: error.message || 'Unknown error' });
+      }
+    }
+
+    return { success: true, data: results };
+  }
+
   private async generateAttendanceId(tenantId: string): Promise<string> {
-    // Find the highest attendance ID for this tenant (students + teachers)
-    const [lastStudent, lastTeacher] = await Promise.all([
-      this.prisma.student.findFirst({
-        where: { tenantId, attendanceId: { not: null } },
-        orderBy: { attendanceId: 'desc' },
-        select: { attendanceId: true },
-      }),
-      this.prisma.teacher.findFirst({
-        where: { tenantId, attendanceId: { not: null } },
-        orderBy: { attendanceId: 'desc' },
-        select: { attendanceId: true },
-      }),
-    ]);
+    // Find the highest student attendance ID (students start from 1000)
+    const lastStudent = await this.prisma.student.findFirst({
+      where: { tenantId, attendanceId: { not: null } },
+      orderBy: { attendanceId: 'desc' },
+      select: { attendanceId: true },
+    });
 
     const lastStudentId = lastStudent?.attendanceId ? parseInt(lastStudent.attendanceId) : 0;
-    const lastTeacherId = lastTeacher?.attendanceId ? parseInt(lastTeacher.attendanceId) : 0;
-    const maxId = Math.max(lastStudentId, lastTeacherId, 1000); // Start from 1001
+    const maxId = Math.max(lastStudentId, 1000); // Students start from 1001
 
     return String(maxId + 1);
   }

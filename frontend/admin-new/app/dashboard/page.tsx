@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
+import * as XLSX from 'xlsx';
 
 const API_URL = typeof window !== 'undefined'
   ? `http://${window.location.hostname}:3000/api`
@@ -266,6 +267,14 @@ export default function DashboardPage() {
     date: new Date().toISOString().split('T')[0],
     teacherId: '',
   });
+
+  // Import/Export state
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importData, setImportData] = useState<Array<{ student_code: string; full_name: string; grade?: string; phone?: string; parent_name?: string; parent_phone?: string; telegram_chat_id?: string }>>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
+  const [importResult, setImportResult] = useState<{ created: number; errors: Array<{ row: number; studentCode: string; message: string }> } | null>(null);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Helper function to get teacher color
   const getTeacherColor = (teacherId: string) => {
@@ -936,6 +945,97 @@ export default function DashboardPage() {
     }
   };
 
+  // Download Excel template for student import
+  const handleDownloadTemplate = () => {
+    const templateData = [
+      {
+        'Student ID': 'ST001',
+        'Name': 'Ahmed Khan',
+        'Class': '10th',
+        'Phone': '03001234567',
+        'Parent Name': 'Mohammad Khan',
+        'Parent Phone': '03009876543',
+        'Telegram Chat ID': '',
+      },
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    // Set column widths
+    ws['!cols'] = [
+      { wch: 15 }, { wch: 25 }, { wch: 10 }, { wch: 15 },
+      { wch: 25 }, { wch: 15 }, { wch: 20 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Students');
+    XLSX.writeFile(wb, 'student_import_template.xlsx');
+  };
+
+  // Handle Excel file selection
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const data = new Uint8Array(evt.target?.result as ArrayBuffer);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheetName = workbook.SheetNames[0];
+      const sheet = workbook.Sheets[sheetName];
+      const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+
+      const errors: string[] = [];
+      const parsed = jsonData.map((row: any, idx: number) => {
+        const studentCode = String(row['Student ID'] || '').trim();
+        const fullName = String(row['Name'] || '').trim();
+        if (!studentCode) errors.push(`Row ${idx + 2}: Student ID is required`);
+        if (!fullName) errors.push(`Row ${idx + 2}: Name is required`);
+        return {
+          student_code: studentCode,
+          full_name: fullName,
+          grade: String(row['Class'] || '').trim() || undefined,
+          phone: String(row['Phone'] || '').trim() || undefined,
+          parent_name: String(row['Parent Name'] || '').trim() || undefined,
+          parent_phone: String(row['Parent Phone'] || '').trim() || undefined,
+          telegram_chat_id: String(row['Telegram Chat ID'] || '').trim() || undefined,
+        };
+      });
+
+      setImportData(parsed);
+      setImportErrors(errors);
+      setImportResult(null);
+      setShowImportModal(true);
+    };
+    reader.readAsArrayBuffer(file);
+    // Reset file input so same file can be re-selected
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  // Submit imported students to backend
+  const handleImportSubmit = async () => {
+    setImporting(true);
+    setError('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/admin/students/import`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ students: importData }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Import failed');
+      setImportResult(data.data);
+      if (data.data.created > 0) {
+        fetchStudents();
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const handleSubjectSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!subjectForm.code || !subjectForm.name || !subjectForm.fee || !subjectForm.grade) return;
@@ -1335,7 +1435,7 @@ export default function DashboardPage() {
         {/* Students Tab */}
         {activeTab === 'students' && (
           <div>
-            <div className="mb-6">
+            <div className="mb-6 flex flex-wrap gap-3">
               <button
                 onClick={() => {
                   setShowStudentForm(!showStudentForm);
@@ -1348,7 +1448,124 @@ export default function DashboardPage() {
               >
                 {showStudentForm ? 'Cancel' : '+ Add New Student'}
               </button>
+              <button
+                onClick={handleDownloadTemplate}
+                className="px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
+              >
+                Download Template
+              </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="px-6 py-3 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700"
+              >
+                Import from Excel
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleFileSelect}
+                className="hidden"
+              />
             </div>
+
+            {/* Import Preview Modal */}
+            {showImportModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="bg-white rounded-xl p-6 w-full max-w-3xl max-h-[80vh] overflow-y-auto">
+                  <h2 className="text-lg font-bold mb-4">Import Students from Excel</h2>
+
+                  {!importResult ? (
+                    <>
+                      <p className="text-gray-600 mb-2">Found <strong>{importData.length}</strong> student(s) in the file.</p>
+
+                      {importErrors.length > 0 && (
+                        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4">
+                          <p className="font-medium text-red-700 mb-1">Validation Errors:</p>
+                          {importErrors.map((err, i) => (
+                            <p key={i} className="text-red-600 text-sm">{err}</p>
+                          ))}
+                        </div>
+                      )}
+
+                      {importData.length > 0 && (
+                        <div className="overflow-x-auto mb-4">
+                          <table className="w-full text-sm border-collapse">
+                            <thead>
+                              <tr className="bg-gray-100">
+                                <th className="border p-2 text-left">#</th>
+                                <th className="border p-2 text-left">Student ID</th>
+                                <th className="border p-2 text-left">Name</th>
+                                <th className="border p-2 text-left">Class</th>
+                                <th className="border p-2 text-left">Phone</th>
+                                <th className="border p-2 text-left">Parent</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {importData.slice(0, 20).map((row, idx) => (
+                                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                                  <td className="border p-2">{idx + 1}</td>
+                                  <td className="border p-2">{row.student_code}</td>
+                                  <td className="border p-2">{row.full_name}</td>
+                                  <td className="border p-2">{row.grade || '-'}</td>
+                                  <td className="border p-2">{row.phone || '-'}</td>
+                                  <td className="border p-2">{row.parent_name || '-'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          {importData.length > 20 && (
+                            <p className="text-gray-500 text-sm mt-2">...and {importData.length - 20} more rows</p>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex gap-3 justify-end">
+                        <button
+                          onClick={() => setShowImportModal(false)}
+                          className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleImportSubmit}
+                          disabled={importing || importErrors.length > 0 || importData.length === 0}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {importing ? 'Importing...' : `Import ${importData.length} Students`}
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="mb-4">
+                        <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3">
+                          <p className="text-green-700 font-medium">Successfully created {importResult.created} student(s)</p>
+                        </div>
+                        {importResult.errors.length > 0 && (
+                          <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                            <p className="font-medium text-red-700 mb-1">Failed rows ({importResult.errors.length}):</p>
+                            {importResult.errors.map((err, i) => (
+                              <p key={i} className="text-red-600 text-sm">
+                                Row {err.row}: {err.studentCode} - {err.message}
+                              </p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex justify-end">
+                        <button
+                          onClick={() => { setShowImportModal(false); setImportResult(null); }}
+                          className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                        >
+                          Done
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
 
             {showStudentForm && (
               <div className="bg-white p-6 rounded-xl shadow mb-6">

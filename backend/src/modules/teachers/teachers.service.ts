@@ -85,23 +85,15 @@ export class TeachersService {
   }
 
   private async generateAttendanceId(tenantId: string): Promise<string> {
-    // Find the highest attendance ID for this tenant (students + teachers)
-    const [lastStudent, lastTeacher] = await Promise.all([
-      this.prisma.student.findFirst({
-        where: { tenantId, attendanceId: { not: null } },
-        orderBy: { attendanceId: 'desc' },
-        select: { attendanceId: true },
-      }),
-      this.prisma.teacher.findFirst({
-        where: { tenantId, attendanceId: { not: null } },
-        orderBy: { attendanceId: 'desc' },
-        select: { attendanceId: true },
-      }),
-    ]);
+    // Find the highest teacher attendance ID (teachers start from 4000)
+    const lastTeacher = await this.prisma.teacher.findFirst({
+      where: { tenantId, attendanceId: { not: null } },
+      orderBy: { attendanceId: 'desc' },
+      select: { attendanceId: true },
+    });
 
-    const lastStudentId = lastStudent?.attendanceId ? parseInt(lastStudent.attendanceId) : 0;
     const lastTeacherId = lastTeacher?.attendanceId ? parseInt(lastTeacher.attendanceId) : 0;
-    const maxId = Math.max(lastStudentId, lastTeacherId, 1000); // Start from 1001
+    const maxId = Math.max(lastTeacherId, 4000); // Teachers start from 4001
 
     return String(maxId + 1);
   }

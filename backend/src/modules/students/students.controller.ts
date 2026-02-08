@@ -117,6 +117,41 @@ class UpdateStudentDto {
   parents?: UpdateParentDto[];
 }
 
+class ImportStudentItemDto {
+  @IsString()
+  student_code: string;
+
+  @IsString()
+  full_name: string;
+
+  @IsOptional()
+  @IsString()
+  grade?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  parent_name?: string;
+
+  @IsOptional()
+  @IsString()
+  parent_phone?: string;
+
+  @IsOptional()
+  @IsString()
+  telegram_chat_id?: string;
+}
+
+class ImportStudentsDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ImportStudentItemDto)
+  students: ImportStudentItemDto[];
+}
+
 class ResetPinDto {
   @IsString()
   @Length(4, 6)
@@ -167,6 +202,24 @@ export class StudentsController {
       page: page ? parseInt(page) : undefined,
       limit: limit ? parseInt(limit) : undefined,
     });
+  }
+
+  @Post('import')
+  async importStudents(@Body() dto: ImportStudentsDto, @Request() req: any) {
+    return this.studentsService.bulkCreate(
+      req.user.tenantId,
+      '660e8400-e29b-41d4-a716-446655440002',
+      dto.students.map(s => ({
+        studentCode: s.student_code,
+        fullName: s.full_name,
+        grade: s.grade,
+        phone: s.phone,
+        parentName: s.parent_name,
+        parentPhone: s.parent_phone,
+        telegramChatId: s.telegram_chat_id,
+      })),
+      req.user.userId,
+    );
   }
 
   @Get(':id')
