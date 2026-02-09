@@ -168,6 +168,17 @@ export class BiometricService {
     // Queue SET_USER command to push user to device
     await this.queueSetUserCommand(dto.deviceId, dto.deviceUserId, student.fullName);
 
+    // Auto-push stored fingerprint templates to this device
+    const fpTemplates = await this.prisma.fingerprintTemplate.findMany({
+      where: { tenantId, pin: dto.deviceUserId },
+    });
+    for (const tpl of fpTemplates) {
+      await this.queueUploadFingerprintCommand(dto.deviceId, dto.deviceUserId, tpl.fingerIndex, tpl.template, tpl.size);
+    }
+    if (fpTemplates.length > 0) {
+      this.logger.log(`Auto-pushed ${fpTemplates.length} fingerprint template(s) to device ${dto.deviceId} for PIN ${dto.deviceUserId}`);
+    }
+
     return enrollment;
   }
 
