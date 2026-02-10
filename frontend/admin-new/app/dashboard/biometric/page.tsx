@@ -162,9 +162,33 @@ export default function BiometricPage() {
       const data = await res.json();
       if (data.success) {
         setEnrollments(data.data);
+        // Fetch fingerprint counts for all enrolled PINs
+        const pins = Array.from(new Set(data.data.map((e: Enrollment) => e.deviceUserId))) as string[];
+        if (pins.length > 0) {
+          fetchFingerprintCounts(pins);
+        }
       }
     } catch (err) {
       setError('Failed to fetch enrollments');
+    }
+  };
+
+  const fetchFingerprintCounts = async (pins: string[]) => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/biometric/fingerprint/batch-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pins }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setFpCounts(data.data);
+      }
+    } catch (err) {
+      // silently ignore
     }
   };
 
@@ -358,6 +382,7 @@ export default function BiometricPage() {
   };
 
   const [syncing, setSyncing] = useState(false);
+  const [fpCounts, setFpCounts] = useState<Record<string, number>>({});
 
   const handleSyncTime = async (deviceId: string) => {
     try {
@@ -426,7 +451,12 @@ export default function BiometricPage() {
       });
       const data = await res.json();
       if (data.success) {
-        alert('Download fingerprint command queued. Device will upload templates on next sync.');
+        alert('Download fingerprint command queued. Device will upload templates on next sync (wait ~30 seconds then refresh).');
+        // Refresh FP counts after a short delay to check if device responded quickly
+        setTimeout(() => {
+          const pins = Array.from(new Set(enrollments.map(e => e.deviceUserId)));
+          if (pins.length > 0) fetchFingerprintCounts(pins);
+        }, 5000);
       } else {
         setError(data.message || 'Failed to download fingerprint');
       }
@@ -766,6 +796,7 @@ export default function BiometricPage() {
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Code</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">FP</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Enrolled At</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
@@ -788,6 +819,18 @@ export default function BiometricPage() {
                     </td>
                     <td className="px-6 py-4 text-sm font-mono text-gray-500">
                       {enrollment.student?.studentCode || enrollment.teacher?.teacherCode || '-'}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      {fpCounts[enrollment.deviceUserId] ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs bg-green-100 text-green-800">
+                          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-3.5 h-3.5">
+                            <path fillRule="evenodd" d="M12 1.5a.75.75 0 01.75.75V4.5a.75.75 0 01-1.5 0V2.25A.75.75 0 0112 1.5zM5.636 4.136a.75.75 0 011.06 0l1.592 1.591a.75.75 0 01-1.061 1.06l-1.591-1.59a.75.75 0 010-1.061zm12.728 0a.75.75 0 010 1.06l-1.591 1.592a.75.75 0 11-1.06-1.061l1.59-1.591a.75.75 0 011.061 0zm-6.816 4.496a.75.75 0 01.82.311l5.228 7.917a.75.75 0 01-.777 1.148l-2.097-.43 1.045 3.9a.75.75 0 01-1.45.388l-1.044-3.899-1.601 1.42a.75.75 0 01-1.247-.606l.569-9.47a.75.75 0 01.554-.679z" clipRule="evenodd" />
+                          </svg>
+                          {fpCounts[enrollment.deviceUserId]}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-400">None</span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <span className={`px-2 py-1 rounded-full text-xs ${
@@ -838,7 +881,7 @@ export default function BiometricPage() {
                 ))}
                 {enrollments.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-6 py-8 text-center text-gray-500">
+                    <td colSpan={9} className="px-6 py-8 text-center text-gray-500">
                       No enrollments found
                     </td>
                   </tr>

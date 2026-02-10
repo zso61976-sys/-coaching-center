@@ -300,6 +300,19 @@ export class BiometricController {
     };
   }
 
+  @Post('fingerprint/batch-status')
+  async getFingerprintBatchStatus(
+    @Request() req: any,
+    @Body() body: { pins: string[] },
+  ) {
+    const tenantId = req.user.tenantId;
+    const counts = await this.biometricService.getFingerprintCountsByPins(tenantId, body.pins || []);
+    return {
+      success: true,
+      data: counts,
+    };
+  }
+
   @Get('fingerprint/:pin')
   async getFingerprintStatus(
     @Request() req: any,

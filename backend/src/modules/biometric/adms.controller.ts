@@ -70,6 +70,7 @@ export class AdmsController {
       `ServerVer=2.4.1`,
       `ATTLOGStamp=0`,
       `OPERLOGStamp=0`,
+      `BIODATAStamp=0`,
     ].join('\n');
 
     this.logger.log(`Handshake response TimeZone=${deviceTzHours}`);
@@ -226,6 +227,29 @@ export class AdmsController {
         this.logger.log(`Command ${dbId} marked as ${returnVal === '0' ? 'executed' : 'failed'} (Return=${returnVal})`);
       } catch (error) {
         this.logger.error(`Failed to update command ${dbId}: ${error.message}`);
+      }
+    }
+
+    // Check if the response body contains fingerprint/biodata (from DATA QUERY BIODATA responses)
+    let rawBody = '';
+    if (typeof body === 'string') {
+      rawBody = body;
+    } else if (Buffer.isBuffer(body)) {
+      rawBody = body.toString('utf-8');
+    } else if (req.body) {
+      rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    }
+
+    if (rawBody && serialNumber && (rawBody.includes('TMP=') || rawBody.includes('TEMPLATE=') || rawBody.includes('\t'))) {
+      // Body might contain fingerprint data from a DATA QUERY response
+      const hasFingerprintData = rawBody.includes('PIN=') && (rawBody.includes('TMP=') || rawBody.includes('TEMPLATE='));
+      if (hasFingerprintData) {
+        this.logger.log(`Fingerprint data detected in devicecmd response from ${serialNumber}`);
+        try {
+          await this.biometricService.handleFingerprintUpload(serialNumber, rawBody);
+        } catch (error) {
+          this.logger.error(`Error processing fingerprint from devicecmd: ${error.message}`);
+        }
       }
     }
 

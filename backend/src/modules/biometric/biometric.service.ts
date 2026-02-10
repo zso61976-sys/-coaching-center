@@ -1027,6 +1027,20 @@ export class BiometricService {
     });
   }
 
+  async getFingerprintCountsByPins(tenantId: string, pins: string[]) {
+    if (pins.length === 0) return {};
+    const results = await this.prisma.fingerprintTemplate.groupBy({
+      by: ['pin'],
+      where: { tenantId, pin: { in: pins } },
+      _count: { pin: true },
+    });
+    const counts: Record<string, number> = {};
+    for (const r of results) {
+      counts[r.pin] = r._count.pin;
+    }
+    return counts;
+  }
+
   async queueDownloadFingerprintCommand(deviceId: string, pin: string) {
     const commandData = `DATA QUERY BIODATA PIN=${pin}`;
 
