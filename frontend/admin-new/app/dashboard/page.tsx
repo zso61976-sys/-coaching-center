@@ -845,6 +845,112 @@ export default function DashboardPage() {
     };
   };
 
+  // Download Fee Status Report as Excel
+  const downloadFeeStatusReport = () => {
+    const monthLabel = new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    const rows: object[] = [];
+
+    students.filter(s => s.isActive).forEach(student => {
+      const stuSubjects = student.subjects || [];
+      const grossFee = stuSubjects.reduce((sum, subId) => {
+        const sub = subjects.find(s => s.id === subId || s.code === subId);
+        return sum + (sub?.fee || 0);
+      }, 0);
+      if (grossFee === 0) return;
+      const stuDiscount = student.discount || 0;
+      const discAmt = Math.round(grossFee * stuDiscount / 100);
+      const finalFee = (student.finalAmount && student.finalAmount > 0) ? student.finalAmount : (grossFee - discAmt);
+      const collected = feeCollections
+        .filter(f => f.studentId === student.studentId && f.month === selectedMonth)
+        .reduce((sum, f) => sum + f.amount, 0);
+      const balance = finalFee - collected;
+      const status = collected === 0 ? 'Pending' : balance <= 0 ? 'Paid' : 'Partial';
+
+      const subjectNames = stuSubjects.map(subId => {
+        const sub = subjects.find(s => s.id === subId || s.code === subId);
+        return sub ? `${sub.name} (Rs.${sub.fee})` : subId;
+      }).join(', ');
+
+      rows.push({
+        'Student ID': student.studentId,
+        'Name': student.name,
+        'Grade': student.grade,
+        'Subjects': subjectNames,
+        'Gross Monthly Fee (Rs.)': grossFee,
+        'Discount (%)': stuDiscount,
+        'Discount Amount (Rs.)': discAmt,
+        'Final Fee (Rs.)': finalFee,
+        'Collected (Rs.)': collected,
+        'Balance Due (Rs.)': Math.max(0, balance),
+        'Status': status,
+        'Month': monthLabel,
+      });
+    });
+
+    // Totals row
+    const totFinal = rows.reduce((s, r: any) => s + r['Final Fee (Rs.)'], 0);
+    const totCollected = rows.reduce((s, r: any) => s + r['Collected (Rs.)'], 0);
+    const totBalance = rows.reduce((s, r: any) => s + r['Balance Due (Rs.)'], 0);
+    rows.push({
+      'Student ID': '',
+      'Name': 'TOTAL',
+      'Grade': '',
+      'Subjects': '',
+      'Gross Monthly Fee (Rs.)': '',
+      'Discount (%)': '',
+      'Discount Amount (Rs.)': '',
+      'Final Fee (Rs.)': totFinal,
+      'Collected (Rs.)': totCollected,
+      'Balance Due (Rs.)': totBalance,
+      'Status': '',
+      'Month': monthLabel,
+    });
+
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 22 }, { wch: 8 }, { wch: 40 },
+      { wch: 20 }, { wch: 12 }, { wch: 20 }, { wch: 16 },
+      { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 18 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Fee Status');
+
+    // Also add collections sheet
+    const collRows = feeCollections
+      .filter(f => f.month === selectedMonth)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .map(fee => {
+        const student = students.find(s => s.studentId === fee.studentId);
+        const stuSubjects = student?.subjects || [];
+        const gross = stuSubjects.reduce((sum, subId) => {
+          const sub = subjects.find(s => s.id === subId || s.code === subId);
+          return sum + (sub?.fee || 0);
+        }, 0);
+        const disc = student?.discount || 0;
+        const discA = Math.round(gross * disc / 100);
+        const final = (student?.finalAmount && student.finalAmount > 0) ? student.finalAmount : (gross - discA);
+        return {
+          'Receipt No': fee.receiptNo,
+          'Date': new Date(fee.date).toLocaleDateString(),
+          'Student ID': fee.studentId,
+          'Student Name': fee.studentName,
+          'Grade': student?.grade || '',
+          'Month': new Date(fee.month + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          'Final Fee (Rs.)': final,
+          'Amount Paid (Rs.)': fee.amount,
+          'Payment Mode': fee.paymentMode,
+        };
+      });
+
+    if (collRows.length > 0) {
+      const ws2 = XLSX.utils.json_to_sheet(collRows);
+      ws2['!cols'] = [{ wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 22 }, { wch: 8 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, ws2, 'Receipts');
+    }
+
+    XLSX.writeFile(wb, `Fee_Report_${selectedMonth}.xlsx`);
+  };
+
   // Get last 6 months for chart
   const getLast6Months = () => {
     const months = [];
@@ -2849,14 +2955,22 @@ export default function DashboardPage() {
 
                 {/* Student Monthly Fee Status */}
                 <div className="bg-white rounded-xl shadow mb-6">
-                  <div className="p-4 border-b flex justify-between items-center">
+                  <div className="p-4 border-b flex justify-between items-center flex-wrap gap-2">
                     <h3 className="font-bold">Student Fee Status</h3>
-                    <input
-                      type="month"
-                      value={selectedMonth}
-                      onChange={(e) => setSelectedMonth(e.target.value)}
-                      className="px-3 py-1 border rounded-lg text-sm"
-                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="month"
+                        value={selectedMonth}
+                        onChange={(e) => setSelectedMonth(e.target.value)}
+                        className="px-3 py-1 border rounded-lg text-sm"
+                      />
+                      <button
+                        onClick={downloadFeeStatusReport}
+                        className="px-4 py-1.5 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700 flex items-center gap-1"
+                      >
+                        ⬇ Download Excel
+                      </button>
+                    </div>
                   </div>
                   <div className="overflow-x-auto">
                     <table className="w-full">
