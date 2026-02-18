@@ -1902,7 +1902,8 @@ export default function DashboardPage() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Biometric ID</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subjects</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fees Paid</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Monthly Fee</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Due</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due Date</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Telegram</th>
@@ -1952,19 +1953,33 @@ export default function DashboardPage() {
                               )}
                             </td>
                             <td className="px-4 py-4">
-                              <div className="text-sm">
-                                <div className="font-medium text-green-600">Rs. {student.feesPaid}</div>
-                                {studentTotalFee > 0 && (
-                                  <div className="text-xs text-gray-500">
-                                    of Rs. {studentActualAmount}
-                                    {studentDiscount > 0 && (
-                                      <span className="ml-1 px-1 py-0.5 bg-orange-100 text-orange-700 rounded text-xs">
-                                        {studentDiscount}% off
-                                      </span>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
+                              {studentTotalFee > 0 ? (
+                                <div className="text-sm">
+                                  <div className="font-bold text-blue-700">Rs. {studentActualAmount}</div>
+                                  {studentDiscount > 0 && (
+                                    <div className="text-xs text-orange-600">{studentDiscount}% discount applied</div>
+                                  )}
+                                  {studentDiscount > 0 && (
+                                    <div className="text-xs text-gray-400 line-through">Rs. {studentTotalFee}</div>
+                                  )}
+                                  <div className="text-xs text-green-600 mt-1">Paid: Rs. {student.feesPaid}</div>
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 text-sm">No subjects</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-4">
+                              {studentTotalFee > 0 ? (
+                                <div className="text-sm">
+                                  {studentActualAmount - student.feesPaid > 0 ? (
+                                    <div className="font-bold text-red-600">Rs. {studentActualAmount - student.feesPaid}</div>
+                                  ) : (
+                                    <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full font-medium">Paid</span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-gray-400 text-sm">-</span>
+                              )}
                             </td>
                             <td className="px-4 py-4">
                               {student.feeDueDate ? (
@@ -2831,6 +2846,125 @@ export default function DashboardPage() {
                     </button>
                   </form>
                 )}
+
+                {/* Student Monthly Fee Status */}
+                <div className="bg-white rounded-xl shadow mb-6">
+                  <div className="p-4 border-b flex justify-between items-center">
+                    <h3 className="font-bold">Student Fee Status</h3>
+                    <input
+                      type="month"
+                      value={selectedMonth}
+                      onChange={(e) => setSelectedMonth(e.target.value)}
+                      className="px-3 py-1 border rounded-lg text-sm"
+                    />
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Monthly Fee</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Discount</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Final Fee</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Collected</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Balance Due</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {students.filter(s => s.isActive).map(student => {
+                          const stuSubjects = student.subjects || [];
+                          const grossFee = stuSubjects.reduce((sum, subId) => {
+                            const sub = subjects.find(s => s.id === subId || s.code === subId);
+                            return sum + (sub?.fee || 0);
+                          }, 0);
+                          if (grossFee === 0) return null;
+                          const stuDiscount = student.discount || 0;
+                          const discAmt = Math.round(grossFee * stuDiscount / 100);
+                          const finalFee = (student.finalAmount && student.finalAmount > 0) ? student.finalAmount : (grossFee - discAmt);
+                          const collected = feeCollections
+                            .filter(f => f.studentId === student.studentId && f.month === selectedMonth)
+                            .reduce((sum, f) => sum + f.amount, 0);
+                          const balance = finalFee - collected;
+                          return (
+                            <tr key={student.id} className="hover:bg-gray-50">
+                              <td className="px-4 py-3">
+                                <div className="font-medium">{student.name}</div>
+                                <div className="text-xs text-gray-500">{student.studentId}</div>
+                              </td>
+                              <td className="px-4 py-3 text-sm">{student.grade}</td>
+                              <td className="px-4 py-3 text-sm text-gray-700">Rs. {grossFee.toLocaleString()}</td>
+                              <td className="px-4 py-3 text-sm">
+                                {stuDiscount > 0 ? (
+                                  <span className="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-medium">
+                                    {stuDiscount}% (- Rs. {discAmt.toLocaleString()})
+                                  </span>
+                                ) : (
+                                  <span className="text-gray-400 text-xs">None</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="font-bold text-blue-700">Rs. {finalFee.toLocaleString()}</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="font-medium text-green-600">Rs. {collected.toLocaleString()}</span>
+                              </td>
+                              <td className="px-4 py-3">
+                                {balance > 0 ? (
+                                  <span className="font-bold text-red-600">Rs. {balance.toLocaleString()}</span>
+                                ) : (
+                                  <span className="text-green-600 font-medium">Rs. 0</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3">
+                                {collected === 0 ? (
+                                  <span className="px-2 py-1 text-xs bg-red-100 text-red-700 rounded-full">Pending</span>
+                                ) : balance <= 0 ? (
+                                  <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded-full">Paid</span>
+                                ) : (
+                                  <span className="px-2 py-1 text-xs bg-yellow-100 text-yellow-700 rounded-full">Partial</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="bg-gray-50 border-t-2 border-gray-300">
+                        {(() => {
+                          const totals = students.filter(s => s.isActive).reduce((acc, student) => {
+                            const stuSubjects = student.subjects || [];
+                            const grossFee = stuSubjects.reduce((sum, subId) => {
+                              const sub = subjects.find(s => s.id === subId || s.code === subId);
+                              return sum + (sub?.fee || 0);
+                            }, 0);
+                            if (grossFee === 0) return acc;
+                            const stuDiscount = student.discount || 0;
+                            const discAmt = Math.round(grossFee * stuDiscount / 100);
+                            const finalFee = (student.finalAmount && student.finalAmount > 0) ? student.finalAmount : (grossFee - discAmt);
+                            const collected = feeCollections
+                              .filter(f => f.studentId === student.studentId && f.month === selectedMonth)
+                              .reduce((sum, f) => sum + f.amount, 0);
+                            return {
+                              finalFee: acc.finalFee + finalFee,
+                              collected: acc.collected + collected,
+                              balance: acc.balance + Math.max(0, finalFee - collected),
+                            };
+                          }, { finalFee: 0, collected: 0, balance: 0 });
+                          return (
+                            <tr>
+                              <td colSpan={4} className="px-4 py-3 font-bold text-gray-700">Total ({new Date(selectedMonth + '-01').toLocaleDateString('en-US', { month: 'long', year: 'numeric' })})</td>
+                              <td className="px-4 py-3 font-bold text-blue-700">Rs. {totals.finalFee.toLocaleString()}</td>
+                              <td className="px-4 py-3 font-bold text-green-600">Rs. {totals.collected.toLocaleString()}</td>
+                              <td className="px-4 py-3 font-bold text-red-600">Rs. {totals.balance.toLocaleString()}</td>
+                              <td className="px-4 py-3"></td>
+                            </tr>
+                          );
+                        })()}
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
 
                 {/* Fee Collections Table */}
                 <div className="bg-white rounded-xl shadow">
