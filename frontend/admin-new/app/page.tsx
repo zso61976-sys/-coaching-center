@@ -4,9 +4,11 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from './contexts/AuthContext';
 
-const API_URL = typeof window !== 'undefined'
-  ? `http://${window.location.hostname}:3000/api`
-  : 'http://localhost:3000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL}/api`
+  : typeof window !== 'undefined'
+    ? `http://${window.location.hostname}:3000/api`
+    : 'http://localhost:3000/api';
 
 export default function LoginPage() {
   const router = useRouter();

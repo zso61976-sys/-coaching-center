@@ -5,9 +5,11 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
 
-const API_URL = typeof window !== 'undefined'
-  ? `http://${window.location.hostname}:3000/api`
-  : 'http://localhost:3000/api';
+const API_URL = process.env.NEXT_PUBLIC_API_URL
+  ? `${process.env.NEXT_PUBLIC_API_URL}/api`
+  : typeof window !== 'undefined'
+    ? `http://${window.location.hostname}:3000/api`
+    : 'http://localhost:3000/api';
 
 interface Parent {
   parent_id: string;
