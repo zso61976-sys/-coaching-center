@@ -34,7 +34,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     ports:
-      - "2000:3000"
+      - "2005:3000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:
@@ -64,7 +64,7 @@ services:
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     ports:
-      - "2001:3000"
+      - "2000:3000"
     depends_on:
       - backend
     networks:
