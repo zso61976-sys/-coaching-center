@@ -1,0 +1,122 @@
+version: "3.8"
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: coaching_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: attendance
+      POSTGRES_PASSWORD: attendance_prod_2026
+      POSTGRES_DB: attendance_db
+      TZ: Asia/Karachi
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attendance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - coaching_network
+
+  # Redis for Job Queue
+  redis:
+    image: redis:7-alpine
+    container_name: coaching_redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    environment:
+      TZ: Asia/Karachi
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - coaching_network
+
+  # Backend API
+  backend:
+    build:
+      context: ../backend
+      dockerfile: ../docker/Dockerfile.backend
+    container_name: coaching_backend
+    restart: unless-stopped
+    env_file:
+      - ../backend/.env.vps2
+    environment:
+      TZ: Asia/Karachi
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    ports:
+      - "2000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - coaching_network
+
+  # Admin Dashboard
+  admin:
+    build:
+      context: ../frontend/admin-new
+      dockerfile: ../../docker/Dockerfile.frontend
+    container_name: coaching_admin
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://45.129.86.105:2000
+      TZ: Asia/Karachi
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    ports:
+      - "2001:3000"
+    depends_on:
+      - backend
+    networks:
+      - coaching_network
+
+  # Kiosk App
+  kiosk:
+    build:
+      context: ../frontend/kiosk
+      dockerfile: ../../docker/Dockerfile.frontend
+    container_name: coaching_kiosk
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: http://45.129.86.105:2000
+      NEXT_PUBLIC_KIOSK_SECRET: kiosk-secret-key-prod-2026-aws
+      TZ: Asia/Karachi
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+    ports:
+      - "2002:3000"
+    depends_on:
+      - backend
+    networks:
+      - coaching_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  coaching_network:
+    driver: bridge
