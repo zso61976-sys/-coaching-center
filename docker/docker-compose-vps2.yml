@@ -73,10 +73,12 @@ services:
     build:
       context: ../frontend/admin-new
       dockerfile: ../../docker/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://45.129.86.105
     container_name: coaching_admin
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://45.129.86.105:2000
+      NEXT_PUBLIC_API_URL: http://45.129.86.105
       TZ: Asia/Karachi
     volumes:
       - /etc/localtime:/etc/localtime:ro
@@ -93,10 +95,13 @@ services:
     build:
       context: ../frontend/kiosk
       dockerfile: ../../docker/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://45.129.86.105
+        NEXT_PUBLIC_KIOSK_SECRET: kiosk-secret-key-prod-2026-aws
     container_name: coaching_kiosk
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: http://45.129.86.105:2000
+      NEXT_PUBLIC_API_URL: http://45.129.86.105
       NEXT_PUBLIC_KIOSK_SECRET: kiosk-secret-key-prod-2026-aws
       TZ: Asia/Karachi
     volumes:
