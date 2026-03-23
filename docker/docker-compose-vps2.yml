@@ -1,26 +1,6 @@
 version: "3.8"
 
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: coaching_db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: attendance
-      POSTGRES_PASSWORD: attendance_prod_2026
-      POSTGRES_DB: attendance_db
-      TZ: Asia/Karachi
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U attendance"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - coaching_network
-
   # Redis for Job Queue
   redis:
     image: redis:7-alpine
@@ -55,9 +35,9 @@ services:
       - /etc/timezone:/etc/timezone:ro
     ports:
       - "2000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -115,7 +95,6 @@ services:
       - coaching_network
 
 volumes:
-  postgres_data:
   redis_data:
 
 networks:
