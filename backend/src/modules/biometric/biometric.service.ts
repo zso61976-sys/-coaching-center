@@ -1055,7 +1055,7 @@ export class BiometricService {
   }
 
   async queueUploadFingerprintCommand(deviceId: string, pin: string, fingerIndex: number, template: string, size: number) {
-    const commandData = `DATA UPDATE BIODATA PIN=${pin}\tNo=${fingerIndex}\tIndex=${fingerIndex}\tValid=1\tDuress=0\tType=0\tMajorVer=0\tMinorVer=0\tFormat=0\tTmp=${template}`;
+    const commandData = `DATA UPDATE BIODATA PIN=${pin}\tNo=${fingerIndex}\tIndex=${fingerIndex}\tValid=1\tDuress=0\tType=0\tMajorVer=0\tMinorVer=0\tFormat=0\tTmp=${template}\tSize=${size}`;
 
     return this.prisma.deviceCommand.create({
       data: {
