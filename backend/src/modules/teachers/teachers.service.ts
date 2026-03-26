@@ -153,7 +153,7 @@ export class TeachersService {
           where: { tenantId, pin: attendanceId },
         });
         for (const tpl of fpTemplates) {
-          const fpCommand = `DATA UPDATE BIODATA PIN=${attendanceId}\tNo=${tpl.fingerIndex}\tIndex=${tpl.fingerIndex}\tValid=1\tDuress=0\tType=0\tMajorVer=0\tMinorVer=0\tFormat=0\tTmp=${tpl.template}`;
+          const fpCommand = `DATA UPDATE BIODATA PIN=${attendanceId}\tNo=${tpl.fingerIndex}\tIndex=${tpl.fingerIndex}\tValid=1\tDuress=0\tType=0\tMajorVer=0\tMinorVer=0\tFormat=0\tTmp=${tpl.template}\tSize=${tpl.size}`;
           await this.prisma.deviceCommand.create({
             data: {
               deviceId: device.id,

@@ -28,6 +28,10 @@ class CreateTeacherDto {
   @IsOptional()
   @IsArray()
   classes?: string[];
+
+  @IsOptional()
+  @IsArray()
+  device_ids?: string[];
 }
 
 class UpdateTeacherDto {
@@ -139,6 +143,7 @@ export class TeachersController {
       attendanceId: dto.attendance_id,
       subjects: dto.subjects || [],
       classes: dto.classes || [],
+      deviceIds: dto.device_ids,
     });
   }
 

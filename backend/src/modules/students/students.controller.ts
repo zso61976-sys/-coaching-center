@@ -58,6 +58,10 @@ class CreateStudentDto {
 
   @IsOptional()
   @IsArray()
+  device_ids?: string[];
+
+  @IsOptional()
+  @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ParentDto)
   parents?: ParentDto[];
@@ -182,6 +186,7 @@ export class StudentsController {
         relationship: p.relationship,
         isPrimary: p.is_primary,
       })),
+      deviceIds: dto.device_ids,
       createdBy: req.user.userId,
     });
   }
