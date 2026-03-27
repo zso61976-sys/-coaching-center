@@ -1143,4 +1143,57 @@ export class BiometricService {
     const command = await this.queueDownloadFingerprintCommand(deviceId, pin);
     return { message: 'Download fingerprint command queued', commandId: command.id };
   }
+
+  async getDeviceUsers(tenantId: string, deviceId: string) {
+    const enrollments = await this.prisma.biometricEnrollment.findMany({
+      where: { deviceId, device: { tenantId }, status: 'active' },
+      select: { id: true, deviceUserId: true, memberType: true, enrolledAt: true },
+    });
+    return enrollments;
+  }
+
+  async downloadAllFingerprintsFromDevice(tenantId: string, deviceId: string) {
+    const device = await this.prisma.biometricDevice.findFirst({
+      where: { id: deviceId, tenantId },
+    });
+    if (!device) throw new NotFoundException('Device not found');
+
+    const enrollments = await this.prisma.biometricEnrollment.findMany({
+      where: { deviceId, status: 'active' },
+    });
+
+    const commands = [];
+    for (const enrollment of enrollments) {
+      const command = await this.queueDownloadFingerprintCommand(deviceId, enrollment.deviceUserId);
+      commands.push({ pin: enrollment.deviceUserId, commandId: command.id });
+    }
+    return { queued: commands.length, commands };
+  }
+
+  async uploadFingerprintToDevice(tenantId: string, deviceId: string, pin: string) {
+    return this.syncFingerprintsToDevice(tenantId, deviceId, pin);
+  }
+
+  async uploadAllFingerprintsToDevice(tenantId: string, deviceId: string) {
+    const device = await this.prisma.biometricDevice.findFirst({
+      where: { id: deviceId, tenantId },
+    });
+    if (!device) throw new NotFoundException('Device not found');
+
+    const templates = await this.prisma.fingerprintTemplate.findMany({
+      where: { tenantId },
+      select: { pin: true },
+      distinct: ['pin'],
+    });
+
+    const results = [];
+    for (const { pin } of templates) {
+      const pinTemplates = await this.getFingerprintTemplates(tenantId, pin);
+      for (const tpl of pinTemplates) {
+        const command = await this.queueUploadFingerprintCommand(deviceId, pin, tpl.fingerIndex, tpl.template, tpl.size);
+        results.push({ pin, fingerIndex: tpl.fingerIndex, commandId: command.id });
+      }
+    }
+    return { synced: results.length, total: templates.length };
+  }
 }

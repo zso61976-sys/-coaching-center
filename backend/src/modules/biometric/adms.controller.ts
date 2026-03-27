@@ -63,7 +63,7 @@ export class AdmsController {
       `Delay=10`,
       `TransTimes=00:00;14:05`,
       `TransInterval=1`,
-      `TransFlag=TransData AttLog OpLog BioData`,
+      `TransFlag=TransData AttLog OpLog BioData FP`,
       `TimeZone=${deviceTzHours}`,
       `Realtime=1`,
       `Encrypt=0`,
@@ -71,6 +71,7 @@ export class AdmsController {
       `ATTLOGStamp=0`,
       `OPERLOGStamp=0`,
       `BIODATAStamp=0`,
+      `FPTEMPStamp=0`,
     ].join('\n');
 
     this.logger.log(`Handshake response TimeZone=${deviceTzHours}`);
@@ -124,7 +125,16 @@ export class AdmsController {
     }
 
     if (table === 'OPERLOG') {
-      this.logger.log(`OPERLOG received from ${serialNumber}: ${rawBody}`);
+      this.logger.log(`OPERLOG received from ${serialNumber}: ${rawBody.substring(0, 200)}`);
+      const hasFPData = rawBody.includes('FP ') && rawBody.includes('TMP=');
+      if (hasFPData) {
+        this.logger.log(`Fingerprint data detected in OPERLOG from ${serialNumber}`);
+        try {
+          await this.biometricService.handleFingerprintUpload(serialNumber, rawBody);
+        } catch (error) {
+          this.logger.error(`Error processing fingerprint from OPERLOG: ${error.message}`);
+        }
+      }
       return res.send('OK');
     }
 

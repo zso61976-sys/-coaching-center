@@ -215,6 +215,13 @@ export class BiometricController {
     };
   }
 
+  @Get('devices/:id/users')
+  async getDeviceUsers(@Request() req: any, @Param('id') deviceId: string) {
+    const tenantId = req.user.tenantId;
+    const result = await this.biometricService.getDeviceUsers(tenantId, deviceId);
+    return { success: true, data: result };
+  }
+
   @Get('devices/:id/commands')
   async getDeviceCommands(
     @Request() req: any,
@@ -333,5 +340,30 @@ export class BiometricController {
         })),
       },
     };
+  }
+
+  @Post('devices/:id/download-all-fp')
+  async downloadAllFP(@Request() req: any, @Param('id') deviceId: string) {
+    const tenantId = req.user.tenantId;
+    const result = await this.biometricService.downloadAllFingerprintsFromDevice(tenantId, deviceId);
+    return { success: true, data: result, message: `Queued ${result.queued} FP download commands` };
+  }
+
+  @Post('devices/:id/upload-fp')
+  async uploadFPToDevice(
+    @Request() req: any,
+    @Param('id') deviceId: string,
+    @Body() body: { pin: string },
+  ) {
+    const tenantId = req.user.tenantId;
+    const result = await this.biometricService.uploadFingerprintToDevice(tenantId, deviceId, body.pin);
+    return { success: true, data: result, message: result.synced > 0 ? `Queued ${result.synced} FP upload(s) to device` : 'No fingerprints found in server DB for this PIN' };
+  }
+
+  @Post('devices/:id/upload-all-fp')
+  async uploadAllFPToDevice(@Request() req: any, @Param('id') deviceId: string) {
+    const tenantId = req.user.tenantId;
+    const result = await this.biometricService.uploadAllFingerprintsToDevice(tenantId, deviceId);
+    return { success: true, data: result, message: `Queued ${result.synced} FP uploads for ${result.total} users with fingerprints` };
   }
 }
