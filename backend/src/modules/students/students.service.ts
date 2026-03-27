@@ -220,7 +220,10 @@ export class StudentsService {
   }
 
   private async autoEnrollToBiometricDevices(tenantId: string, studentId: string, attendanceId: string, fullName?: string, deviceIds?: string[]) {
-    // Get devices - either specific ones or all active devices
+    // If deviceIds is explicitly provided (even empty array), only enroll those devices.
+    // If deviceIds is undefined (not provided), enroll on all active devices.
+    if (deviceIds !== undefined && deviceIds.length === 0) return;
+
     let devices;
     if (deviceIds && deviceIds.length > 0) {
       devices = await this.prisma.biometricDevice.findMany({
