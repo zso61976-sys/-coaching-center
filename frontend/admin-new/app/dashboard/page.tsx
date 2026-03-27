@@ -495,6 +495,7 @@ export default function DashboardPage() {
           attendance_id: teacherForm.biometricId || undefined,
           subjects: teacherForm.subjects,
           classes: teacherForm.classes,
+          device_ids: teacherForm.selectedDevices.length > 0 ? teacherForm.selectedDevices : undefined,
         }),
       });
 
@@ -1011,6 +1012,7 @@ export default function DashboardPage() {
           grade: formData.grade,
           biometric_id: formData.biometricId || undefined,
           branch_id: '660e8400-e29b-41d4-a716-446655440002',
+          device_ids: formData.selectedDevices.length > 0 ? formData.selectedDevices : undefined,
           parents: formData.parentName && formData.parentPhone ? [{
             full_name: formData.parentName,
             phone: formData.parentPhone,
