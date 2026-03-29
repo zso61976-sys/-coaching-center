@@ -249,6 +249,22 @@ export class BiometricController {
     return { success: true, data: enrollment, message: 'Member enrolled successfully' };
   }
 
+  @Post('devices/:id/enroll-new-member')
+  async enrollNewMember(
+    @Request() req: any,
+    @Param('id') deviceId: string,
+    @Body() body: { deviceUserId: string; fullName: string; memberType: 'student' | 'teacher' },
+  ) {
+    const tenantId = req.user.tenantId;
+    const enrollment = await this.biometricService.enrollNewMemberByPin(tenantId, {
+      deviceId,
+      deviceUserId: body.deviceUserId,
+      fullName: body.fullName,
+      memberType: body.memberType,
+    });
+    return { success: true, data: enrollment, message: `${body.memberType} created and enrolled successfully` };
+  }
+
   @Post('devices/:id/download-fp-batch')
   async downloadFpBatch(
     @Request() req: any,

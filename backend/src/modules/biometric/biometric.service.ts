@@ -1212,6 +1212,73 @@ export class BiometricService {
     return Array.from(userMap.values()).sort((a, b) => a.pin.localeCompare(b.pin));
   }
 
+  async enrollNewMemberByPin(tenantId: string, dto: { deviceId: string; deviceUserId: string; fullName: string; memberType: 'student' | 'teacher' }) {
+    const device = await this.prisma.biometricDevice.findFirst({ where: { id: dto.deviceId, tenantId } });
+    if (!device) throw new NotFoundException('Device not found');
+
+    // Check PIN not already enrolled
+    const existing = await this.prisma.biometricEnrollment.findFirst({
+      where: { deviceId: dto.deviceId, deviceUserId: dto.deviceUserId },
+    });
+    if (existing) throw new ConflictException('This device PIN is already enrolled');
+
+    const timestamp = Date.now();
+
+    if (dto.memberType === 'teacher') {
+      // Create minimal teacher record
+      const teacherCode = `T${dto.deviceUserId}`;
+      const existingTeacher = await this.prisma.teacher.findFirst({ where: { tenantId, teacherCode } });
+      const finalCode = existingTeacher ? `T${dto.deviceUserId}-${timestamp}` : teacherCode;
+
+      const teacher = await this.prisma.teacher.create({
+        data: {
+          tenantId,
+          teacherCode: finalCode,
+          fullName: dto.fullName,
+          attendanceId: dto.deviceUserId,
+          status: 'active',
+        },
+      });
+
+      const enrollment = await this.prisma.biometricEnrollment.create({
+        data: { deviceId: dto.deviceId, teacherId: teacher.id, deviceUserId: dto.deviceUserId, memberType: 'teacher', status: 'active' },
+        include: { teacher: true, device: true },
+      });
+      await this.queueSetUserCommand(dto.deviceId, dto.deviceUserId, dto.fullName);
+      return enrollment;
+    } else {
+      // Create minimal student record — need a branch
+      const branch = await this.prisma.branch.findFirst({ where: { tenantId, status: 'active' } });
+      if (!branch) throw new NotFoundException('No active branch found for this tenant');
+
+      const studentCode = `S${dto.deviceUserId}`;
+      const existingStudent = await this.prisma.student.findFirst({ where: { tenantId, studentCode } });
+      const finalCode = existingStudent ? `S${dto.deviceUserId}-${timestamp}` : studentCode;
+
+      // Check attendanceId uniqueness
+      const existingAttId = await this.prisma.student.findFirst({ where: { tenantId, attendanceId: dto.deviceUserId } });
+      const attendanceId = existingAttId ? `${dto.deviceUserId}-${timestamp}` : dto.deviceUserId;
+
+      const student = await this.prisma.student.create({
+        data: {
+          tenantId,
+          branchId: branch.id,
+          studentCode: finalCode,
+          fullName: dto.fullName,
+          attendanceId,
+          status: 'active',
+        } as any,
+      });
+
+      const enrollment = await this.prisma.biometricEnrollment.create({
+        data: { deviceId: dto.deviceId, studentId: student.id, deviceUserId: dto.deviceUserId, memberType: 'student', status: 'active' },
+        include: { student: true, device: true },
+      });
+      await this.queueSetUserCommand(dto.deviceId, dto.deviceUserId, dto.fullName);
+      return enrollment;
+    }
+  }
+
   async searchMembers(tenantId: string, query: string, type?: string) {
     const results: any[] = [];
 

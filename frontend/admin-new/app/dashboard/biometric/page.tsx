@@ -408,10 +408,7 @@ export default function BiometricPage() {
   // Enroll unknown device user state
   const [enrollingPin, setEnrollingPin] = useState<string | null>(null);
   const [enrollMemberType, setEnrollMemberType] = useState<'student' | 'teacher'>('student');
-  const [enrollSearchQuery, setEnrollSearchQuery] = useState('');
-  const [enrollSearchResults, setEnrollSearchResults] = useState<{ id: string; name: string; code: string; type: string }[]>([]);
-  const [enrollSearching, setEnrollSearching] = useState(false);
-  const [enrollSelectedMember, setEnrollSelectedMember] = useState<{ id: string; name: string; code: string; type: string } | null>(null);
+  const [enrollName, setEnrollName] = useState('');
   const [enrolling, setEnrolling] = useState(false);
 
   const handleSyncTime = async (deviceId: string) => {
@@ -585,42 +582,23 @@ export default function BiometricPage() {
     }
   };
 
-  const handleSearchMembers = async (query: string, type: string) => {
-    if (!query.trim()) { setEnrollSearchResults([]); return; }
-    setEnrollSearching(true);
-    try {
-      const params = new URLSearchParams({ q: query, type });
-      const res = await fetch(`${API_URL}/api/admin/biometric/search-members?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) setEnrollSearchResults(data.data);
-    } catch {
-      setEnrollSearchResults([]);
-    } finally {
-      setEnrollSearching(false);
-    }
-  };
-
   const handleEnrollDeviceUser = async () => {
-    if (!enrollingPin || !enrollSelectedMember || !deviceUsersDevice) return;
+    if (!enrollingPin || !enrollName.trim() || !deviceUsersDevice) return;
     setEnrolling(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/biometric/devices/${deviceUsersDevice.id}/enroll-device-user`, {
+      const res = await fetch(`${API_URL}/api/admin/biometric/devices/${deviceUsersDevice.id}/enroll-new-member`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
-          memberId: enrollSelectedMember.id,
-          memberType: enrollSelectedMember.type,
           deviceUserId: enrollingPin,
+          fullName: enrollName.trim(),
+          memberType: enrollMemberType,
         }),
       });
       const data = await res.json();
       if (data.success) {
         setEnrollingPin(null);
-        setEnrollSelectedMember(null);
-        setEnrollSearchQuery('');
-        setEnrollSearchResults([]);
+        setEnrollName('');
         handleViewDeviceUsers(deviceUsersDevice);
       } else {
         setError(data.message || 'Failed to enroll');
@@ -1410,9 +1388,7 @@ export default function BiometricPage() {
                                 onClick={() => {
                                   setEnrollingPin(user.pin);
                                   setEnrollMemberType('student');
-                                  setEnrollSearchQuery('');
-                                  setEnrollSearchResults([]);
-                                  setEnrollSelectedMember(null);
+                                  setEnrollName('');
                                 }}
                                 className="text-xs bg-orange-500 text-white px-2 py-1 rounded hover:bg-orange-600 whitespace-nowrap"
                               >
@@ -1444,15 +1420,15 @@ export default function BiometricPage() {
 
       {/* Add to App Sub-Modal */}
       {enrollingPin && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-60">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center" style={{ zIndex: 60 }}>
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <div>
-                <h3 className="text-lg font-bold text-gray-800">Add Device User to App</h3>
-                <p className="text-sm text-gray-500">PIN: <span className="font-mono font-semibold">{enrollingPin}</span></p>
+                <h3 className="text-lg font-bold text-gray-800">Add to Application</h3>
+                <p className="text-sm text-gray-500">Device PIN: <span className="font-mono font-semibold">{enrollingPin}</span></p>
               </div>
               <button
-                onClick={() => { setEnrollingPin(null); setEnrollSelectedMember(null); setEnrollSearchQuery(''); setEnrollSearchResults([]); }}
+                onClick={() => { setEnrollingPin(null); setEnrollName(''); }}
                 className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
               >
                 ×
@@ -1461,16 +1437,16 @@ export default function BiometricPage() {
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Member Type</label>
-                <div className="flex gap-3">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
+                <div className="flex gap-2">
                   <button
-                    onClick={() => { setEnrollMemberType('student'); setEnrollSearchQuery(''); setEnrollSearchResults([]); setEnrollSelectedMember(null); }}
+                    onClick={() => setEnrollMemberType('student')}
                     className={`flex-1 py-2 rounded-lg text-sm font-medium border ${enrollMemberType === 'student' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
                   >
                     Student
                   </button>
                   <button
-                    onClick={() => { setEnrollMemberType('teacher'); setEnrollSearchQuery(''); setEnrollSearchResults([]); setEnrollSelectedMember(null); }}
+                    onClick={() => setEnrollMemberType('teacher')}
                     className={`flex-1 py-2 rounded-lg text-sm font-medium border ${enrollMemberType === 'teacher' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
                   >
                     Teacher
@@ -1479,68 +1455,31 @@ export default function BiometricPage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Search {enrollMemberType === 'student' ? 'Student' : 'Teacher'}</label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={enrollSearchQuery}
-                    onChange={(e) => {
-                      setEnrollSearchQuery(e.target.value);
-                      setEnrollSelectedMember(null);
-                      handleSearchMembers(e.target.value, enrollMemberType);
-                    }}
-                    placeholder={`Search by name or code...`}
-                    className="w-full border rounded-lg px-3 py-2 pr-8"
-                    autoFocus
-                  />
-                  {enrollSearching && (
-                    <div className="absolute right-2 top-2.5">
-                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
-                    </div>
-                  )}
-                </div>
-
-                {enrollSearchResults.length > 0 && !enrollSelectedMember && (
-                  <div className="mt-1 border rounded-lg overflow-hidden max-h-48 overflow-y-auto">
-                    {enrollSearchResults.map((m) => (
-                      <button
-                        key={m.id}
-                        onClick={() => { setEnrollSelectedMember(m); setEnrollSearchResults([]); setEnrollSearchQuery(`${m.name} (${m.code})`); }}
-                        className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b last:border-b-0 text-sm"
-                      >
-                        <span className="font-medium">{m.name}</span>
-                        <span className="text-gray-400 ml-2 font-mono text-xs">{m.code}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {enrollSelectedMember && (
-                  <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-green-800">{enrollSelectedMember.name}</p>
-                      <p className="text-xs text-green-600 font-mono">{enrollSelectedMember.code} · {enrollSelectedMember.type}</p>
-                    </div>
-                    <button onClick={() => { setEnrollSelectedMember(null); setEnrollSearchQuery(''); }} className="text-green-600 hover:text-green-800 text-xs">
-                      Change
-                    </button>
-                  </div>
-                )}
+                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                <input
+                  type="text"
+                  value={enrollName}
+                  onChange={(e) => setEnrollName(e.target.value)}
+                  placeholder="Enter full name"
+                  className="w-full border rounded-lg px-3 py-2"
+                  autoFocus
+                />
+                <p className="text-xs text-gray-400 mt-1">Other details can be filled in from the {enrollMemberType === 'student' ? 'Students' : 'Teachers'} section.</p>
               </div>
 
-              <div className="flex gap-3 justify-end pt-2">
+              <div className="flex gap-3 justify-end pt-1">
                 <button
-                  onClick={() => { setEnrollingPin(null); setEnrollSelectedMember(null); setEnrollSearchQuery(''); setEnrollSearchResults([]); }}
+                  onClick={() => { setEnrollingPin(null); setEnrollName(''); }}
                   className="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleEnrollDeviceUser}
-                  disabled={!enrollSelectedMember || enrolling}
+                  disabled={!enrollName.trim() || enrolling}
                   className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
                 >
-                  {enrolling ? 'Enrolling...' : 'Enroll'}
+                  {enrolling ? 'Adding...' : 'Add to App'}
                 </button>
               </div>
             </div>
