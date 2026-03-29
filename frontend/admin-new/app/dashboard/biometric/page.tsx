@@ -405,11 +405,21 @@ export default function BiometricPage() {
   const [selectedPins, setSelectedPins] = useState<Set<string>>(new Set());
   const [downloadingFp, setDownloadingFp] = useState(false);
 
-  // Enroll unknown device user state
-  const [enrollingPin, setEnrollingPin] = useState<string | null>(null);
-  const [enrollMemberType, setEnrollMemberType] = useState<'student' | 'teacher'>('student');
-  const [enrollName, setEnrollName] = useState('');
-  const [enrolling, setEnrolling] = useState(false);
+  // Add profile from device user
+  const [showAddProfile, setShowAddProfile] = useState(false);
+  const [addProfilePin, setAddProfilePin] = useState('');
+  const [addProfileDeviceId, setAddProfileDeviceId] = useState('');
+  const [addProfileDeviceName, setAddProfileDeviceName] = useState('');
+  const [addProfileType, setAddProfileType] = useState<'student' | 'teacher'>('student');
+  const [addProfileForm, setAddProfileForm] = useState({
+    name: '', code: '', grade: '', phone: '',
+    selectedSubjects: [] as string[],
+    discount: 0, feeDueDate: '',
+    salary: '',
+    teacherSubjects: [] as string[],
+    teacherClasses: [] as string[],
+  });
+  const [addProfileSaving, setAddProfileSaving] = useState(false);
 
   const handleSyncTime = async (deviceId: string) => {
     try {
@@ -582,31 +592,73 @@ export default function BiometricPage() {
     }
   };
 
-  const handleEnrollDeviceUser = async () => {
-    if (!enrollingPin || !enrollName.trim() || !deviceUsersDevice) return;
-    setEnrolling(true);
+  const allSubjects = [
+    { id: '1', code: 'MTH-9', name: 'Mathematics', fee: 500, grade: '9th' },
+    { id: '2', code: 'SCI-9', name: 'Science', fee: 500, grade: '9th' },
+    { id: '3', code: 'ENG-9', name: 'English', fee: 400, grade: '9th' },
+    { id: '4', code: 'SST-9', name: 'Social Studies', fee: 400, grade: '9th' },
+    { id: '5', code: 'MTH-10', name: 'Mathematics', fee: 550, grade: '10th' },
+    { id: '6', code: 'SCI-10', name: 'Science', fee: 550, grade: '10th' },
+    { id: '7', code: 'ENG-10', name: 'English', fee: 450, grade: '10th' },
+    { id: '8', code: 'SST-10', name: 'Social Studies', fee: 450, grade: '10th' },
+    { id: '9', code: 'PHY-11', name: 'Physics', fee: 600, grade: '11th' },
+    { id: '10', code: 'CHM-11', name: 'Chemistry', fee: 600, grade: '11th' },
+    { id: '11', code: 'MTH-11', name: 'Mathematics', fee: 600, grade: '11th' },
+    { id: '12', code: 'BIO-11', name: 'Biology', fee: 550, grade: '11th' },
+    { id: '13', code: 'CS-11', name: 'Computer Science', fee: 650, grade: '11th' },
+    { id: '14', code: 'PHY-12', name: 'Physics', fee: 650, grade: '12th' },
+    { id: '15', code: 'CHM-12', name: 'Chemistry', fee: 650, grade: '12th' },
+    { id: '16', code: 'MTH-12', name: 'Mathematics', fee: 650, grade: '12th' },
+    { id: '17', code: 'BIO-12', name: 'Biology', fee: 600, grade: '12th' },
+    { id: '18', code: 'CS-12', name: 'Computer Science', fee: 700, grade: '12th' },
+  ];
+
+  const handleAddProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!addProfileForm.name.trim() || !addProfileForm.code.trim()) return;
+    setAddProfileSaving(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/biometric/devices/${deviceUsersDevice.id}/enroll-new-member`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          deviceUserId: enrollingPin,
-          fullName: enrollName.trim(),
-          memberType: enrollMemberType,
-        }),
-      });
-      const data = await res.json();
-      if (data.success) {
-        setEnrollingPin(null);
-        setEnrollName('');
-        handleViewDeviceUsers(deviceUsersDevice);
+      let res: Response;
+      if (addProfileType === 'teacher') {
+        res = await fetch(`${API_URL}/api/admin/teachers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            teacher_code: addProfileForm.code.toUpperCase(),
+            full_name: addProfileForm.name,
+            phone: addProfileForm.phone || undefined,
+            salary: addProfileForm.salary ? parseFloat(addProfileForm.salary) : undefined,
+            attendance_id: addProfilePin,
+            subjects: addProfileForm.teacherSubjects,
+            classes: addProfileForm.teacherClasses,
+            device_ids: [addProfileDeviceId],
+          }),
+        });
       } else {
-        setError(data.message || 'Failed to enroll');
+        res = await fetch(`${API_URL}/api/admin/students`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            student_code: addProfileForm.code,
+            full_name: addProfileForm.name,
+            grade: addProfileForm.grade || undefined,
+            biometric_id: addProfilePin,
+            branch_id: '660e8400-e29b-41d4-a716-446655440002',
+            device_ids: [addProfileDeviceId],
+          }),
+        });
       }
-    } catch {
-      setError('Failed to enroll member');
+      const data = await res.json();
+      if (!res.ok) throw new Error(Array.isArray(data.message) ? data.message.join(', ') : data.message || 'Failed to create profile');
+      setShowAddProfile(false);
+      setAddProfilePin('');
+      fetchDevices();
+      fetchSyncStatus();
+      alert(`${addProfileType === 'teacher' ? 'Teacher' : 'Student'} profile created and enrolled on ${addProfileDeviceName}! You can edit further details from the main dashboard.`);
+    } catch (err: any) {
+      setError(err.message || 'Failed to create profile');
     } finally {
-      setEnrolling(false);
+      setAddProfileSaving(false);
     }
   };
 
@@ -1386,9 +1438,14 @@ export default function BiometricPage() {
                             {!user.enrolled && (
                               <button
                                 onClick={() => {
-                                  setEnrollingPin(user.pin);
-                                  setEnrollMemberType('student');
-                                  setEnrollName('');
+                                  if (!deviceUsersDevice) return;
+                                  setAddProfilePin(user.pin);
+                                  setAddProfileDeviceId(deviceUsersDevice.id);
+                                  setAddProfileDeviceName(deviceUsersDevice.name);
+                                  setAddProfileType('student');
+                                  setAddProfileForm({ name: '', code: `S${user.pin}`, grade: '', phone: '', selectedSubjects: [], discount: 0, feeDueDate: '', salary: '', teacherSubjects: [], teacherClasses: [] });
+                                  setShowDeviceUsers(false);
+                                  setShowAddProfile(true);
                                 }}
                                 className="text-xs bg-orange-500 text-white px-2 py-1 rounded hover:bg-orange-600 whitespace-nowrap"
                               >
@@ -1418,71 +1475,162 @@ export default function BiometricPage() {
         </div>
       )}
 
-      {/* Add to App Sub-Modal */}
-      {enrollingPin && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center" style={{ zIndex: 60 }}>
-          <div className="bg-white rounded-lg p-6 w-full max-w-sm shadow-xl">
-            <div className="flex justify-between items-center mb-4">
+      {/* Add Profile Modal — opens after Device Users modal is closed */}
+      {showAddProfile && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg w-full max-w-lg max-h-[90vh] flex flex-col shadow-xl">
+            <div className="flex justify-between items-center p-5 border-b">
               <div>
-                <h3 className="text-lg font-bold text-gray-800">Add to Application</h3>
-                <p className="text-sm text-gray-500">Device PIN: <span className="font-mono font-semibold">{enrollingPin}</span></p>
+                <h2 className="text-xl font-bold text-gray-800">Add New Profile</h2>
+                <p className="text-sm text-gray-500">
+                  Device: <span className="font-medium">{addProfileDeviceName}</span> &nbsp;|&nbsp;
+                  PIN: <span className="font-mono font-semibold">{addProfilePin}</span>
+                </p>
               </div>
-              <button
-                onClick={() => { setEnrollingPin(null); setEnrollName(''); }}
-                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
-              >
-                ×
-              </button>
+              <button onClick={() => setShowAddProfile(false)} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">×</button>
             </div>
 
-            <div className="space-y-4">
+            <form onSubmit={handleAddProfile} className="overflow-y-auto flex-1 p-5 space-y-4">
+              {/* Type */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Type</label>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => setEnrollMemberType('student')}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium border ${enrollMemberType === 'student' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
-                  >
+                  <button type="button" onClick={() => { setAddProfileType('student'); setAddProfileForm(f => ({ ...f, code: `S${addProfilePin}` })); }}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium border ${addProfileType === 'student' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
                     Student
                   </button>
-                  <button
-                    onClick={() => setEnrollMemberType('teacher')}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium border ${enrollMemberType === 'teacher' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
-                  >
+                  <button type="button" onClick={() => { setAddProfileType('teacher'); setAddProfileForm(f => ({ ...f, code: `T${addProfilePin}` })); }}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium border ${addProfileType === 'teacher' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}>
                     Teacher
                   </button>
                 </div>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                <input
-                  type="text"
-                  value={enrollName}
-                  onChange={(e) => setEnrollName(e.target.value)}
-                  placeholder="Enter full name"
-                  className="w-full border rounded-lg px-3 py-2"
-                  autoFocus
-                />
-                <p className="text-xs text-gray-400 mt-1">Other details can be filled in from the {enrollMemberType === 'student' ? 'Students' : 'Teachers'} section.</p>
+              {/* Name + Code */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+                  <input type="text" required value={addProfileForm.name}
+                    onChange={e => setAddProfileForm(f => ({ ...f, name: e.target.value }))}
+                    placeholder="Enter full name" className="w-full border rounded-lg px-3 py-2 text-sm" autoFocus />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">{addProfileType === 'student' ? 'Student' : 'Teacher'} Code *</label>
+                  <input type="text" required value={addProfileForm.code}
+                    onChange={e => setAddProfileForm(f => ({ ...f, code: e.target.value }))}
+                    className="w-full border rounded-lg px-3 py-2 text-sm font-mono" />
+                </div>
               </div>
 
-              <div className="flex gap-3 justify-end pt-1">
-                <button
-                  onClick={() => { setEnrollingPin(null); setEnrollName(''); }}
-                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleEnrollDeviceUser}
-                  disabled={!enrollName.trim() || enrolling}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
-                >
-                  {enrolling ? 'Adding...' : 'Add to App'}
+              {/* Phone + Grade/Salary */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                  <input type="text" value={addProfileForm.phone}
+                    onChange={e => setAddProfileForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="03001234567" className="w-full border rounded-lg px-3 py-2 text-sm" />
+                </div>
+                {addProfileType === 'student' ? (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Class / Grade</label>
+                    <select value={addProfileForm.grade}
+                      onChange={e => setAddProfileForm(f => ({ ...f, grade: e.target.value, selectedSubjects: [] }))}
+                      className="w-full border rounded-lg px-3 py-2 text-sm">
+                      <option value="">Select grade</option>
+                      {['9th', '10th', '11th', '12th'].map(g => <option key={g} value={g}>{g}</option>)}
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Salary (Rs.)</label>
+                    <input type="number" value={addProfileForm.salary}
+                      onChange={e => setAddProfileForm(f => ({ ...f, salary: e.target.value }))}
+                      placeholder="0" className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                )}
+              </div>
+
+              {/* Subjects — student: filtered by grade; teacher: free multi-select */}
+              {addProfileType === 'student' && addProfileForm.grade && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Subjects ({addProfileForm.grade})</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {allSubjects.filter(s => s.grade === addProfileForm.grade).map(s => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="checkbox"
+                          checked={addProfileForm.selectedSubjects.includes(s.id)}
+                          onChange={() => setAddProfileForm(f => ({
+                            ...f,
+                            selectedSubjects: f.selectedSubjects.includes(s.id)
+                              ? f.selectedSubjects.filter(x => x !== s.id)
+                              : [...f.selectedSubjects, s.id],
+                          }))} />
+                        <span>{s.name}</span>
+                        <span className="text-gray-400 text-xs">Rs.{s.fee}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {addProfileType === 'teacher' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Classes</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['9th', '10th', '11th', '12th'].map(cls => (
+                      <label key={cls} className="flex items-center gap-1 text-sm cursor-pointer">
+                        <input type="checkbox"
+                          checked={addProfileForm.teacherClasses.includes(cls)}
+                          onChange={() => setAddProfileForm(f => ({
+                            ...f,
+                            teacherClasses: f.teacherClasses.includes(cls)
+                              ? f.teacherClasses.filter(x => x !== cls)
+                              : [...f.teacherClasses, cls],
+                          }))} />
+                        {cls}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Fee Due Date (student only) */}
+              {addProfileType === 'student' && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Fee Due Date</label>
+                    <input type="date" value={addProfileForm.feeDueDate}
+                      onChange={e => setAddProfileForm(f => ({ ...f, feeDueDate: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Discount (Rs.)</label>
+                    <input type="number" value={addProfileForm.discount}
+                      onChange={e => setAddProfileForm(f => ({ ...f, discount: parseInt(e.target.value) || 0 }))}
+                      className="w-full border rounded-lg px-3 py-2 text-sm" />
+                  </div>
+                </div>
+              )}
+
+              {/* Device info (read-only) */}
+              <div className="bg-gray-50 rounded-lg p-3 text-sm">
+                <span className="text-gray-500">Device:</span> <span className="font-medium">{addProfileDeviceName}</span>
+                <span className="mx-2 text-gray-300">|</span>
+                <span className="text-gray-500">Biometric PIN:</span> <span className="font-mono font-semibold">{addProfilePin}</span>
+                <p className="text-xs text-gray-400 mt-1">Profile will be enrolled on this device automatically.</p>
+              </div>
+
+              {error && <div className="bg-red-50 text-red-700 text-sm p-3 rounded-lg">{error}<button type="button" onClick={() => setError('')} className="ml-2 font-bold">×</button></div>}
+
+              <div className="flex gap-3 justify-end pt-1 pb-1">
+                <button type="button" onClick={() => setShowAddProfile(false)}
+                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm">Cancel</button>
+                <button type="submit" disabled={addProfileSaving}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
+                  {addProfileSaving ? 'Saving...' : `Save ${addProfileType === 'student' ? 'Student' : 'Teacher'}`}
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </div>
       )}
