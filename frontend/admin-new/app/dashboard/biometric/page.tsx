@@ -86,6 +86,17 @@ interface Enrollment {
   } | null;
 }
 
+interface DeviceUser {
+  pin: string;
+  name: string | null;
+  code: string | null;
+  type: string;
+  enrolled: boolean;
+  enrollmentId: string | null;
+  lastSeen: string | null;
+  fpCount: number;
+}
+
 export default function BiometricPage() {
   const { token, hasRole, isLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'devices' | 'logs' | 'enrollments'>('devices');
@@ -386,6 +397,23 @@ export default function BiometricPage() {
   const [syncing, setSyncing] = useState(false);
   const [fpCounts, setFpCounts] = useState<Record<string, number>>({});
 
+  // Device Users modal state
+  const [showDeviceUsers, setShowDeviceUsers] = useState(false);
+  const [deviceUsersDevice, setDeviceUsersDevice] = useState<BiometricDevice | null>(null);
+  const [deviceUsers, setDeviceUsers] = useState<DeviceUser[]>([]);
+  const [deviceUsersLoading, setDeviceUsersLoading] = useState(false);
+  const [selectedPins, setSelectedPins] = useState<Set<string>>(new Set());
+  const [downloadingFp, setDownloadingFp] = useState(false);
+
+  // Enroll unknown device user state
+  const [enrollingPin, setEnrollingPin] = useState<string | null>(null);
+  const [enrollMemberType, setEnrollMemberType] = useState<'student' | 'teacher'>('student');
+  const [enrollSearchQuery, setEnrollSearchQuery] = useState('');
+  const [enrollSearchResults, setEnrollSearchResults] = useState<{ id: string; name: string; code: string; type: string }[]>([]);
+  const [enrollSearching, setEnrollSearching] = useState(false);
+  const [enrollSelectedMember, setEnrollSelectedMember] = useState<{ id: string; name: string; code: string; type: string } | null>(null);
+  const [enrolling, setEnrolling] = useState(false);
+
   const handleSyncTime = async (deviceId: string) => {
     try {
       const res = await fetch(`${API_URL}/api/admin/biometric/devices/${deviceId}/sync-time`, {
@@ -486,6 +514,121 @@ export default function BiometricPage() {
       }
     } catch (err) {
       setError('Failed to sync fingerprint');
+    }
+  };
+
+  const handleViewDeviceUsers = async (device: BiometricDevice) => {
+    setDeviceUsersDevice(device);
+    setDeviceUsers([]);
+    setSelectedPins(new Set());
+    setShowDeviceUsers(true);
+    setDeviceUsersLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/biometric/devices/${device.id}/users`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setDeviceUsers(data.data);
+      }
+    } catch {
+      setError('Failed to load device users');
+    } finally {
+      setDeviceUsersLoading(false);
+    }
+  };
+
+  const handleTogglePin = (pin: string) => {
+    setSelectedPins(prev => {
+      const next = new Set(prev);
+      if (next.has(pin)) next.delete(pin);
+      else next.add(pin);
+      return next;
+    });
+  };
+
+  const handleSelectAllPins = () => {
+    if (selectedPins.size === deviceUsers.length) {
+      setSelectedPins(new Set());
+    } else {
+      setSelectedPins(new Set(deviceUsers.map(u => u.pin)));
+    }
+  };
+
+  const handleDownloadSelectedFp = async () => {
+    if (!deviceUsersDevice || selectedPins.size === 0) return;
+    setDownloadingFp(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/biometric/devices/${deviceUsersDevice.id}/download-fp-batch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ pins: Array.from(selectedPins) }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(`Fingerprint download queued for ${selectedPins.size} user(s). Wait ~30 seconds then refresh to see FP counts update.`);
+        setSelectedPins(new Set());
+        // Refresh FP counts
+        setTimeout(() => {
+          const pins = deviceUsers.map(u => u.pin);
+          if (pins.length > 0) fetchFingerprintCounts(pins);
+          // Reload device users to get updated FP counts
+          handleViewDeviceUsers(deviceUsersDevice);
+        }, 15000);
+      } else {
+        setError(data.message || 'Failed to queue download');
+      }
+    } catch {
+      setError('Failed to queue fingerprint download');
+    } finally {
+      setDownloadingFp(false);
+    }
+  };
+
+  const handleSearchMembers = async (query: string, type: string) => {
+    if (!query.trim()) { setEnrollSearchResults([]); return; }
+    setEnrollSearching(true);
+    try {
+      const params = new URLSearchParams({ q: query, type });
+      const res = await fetch(`${API_URL}/api/admin/biometric/search-members?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) setEnrollSearchResults(data.data);
+    } catch {
+      setEnrollSearchResults([]);
+    } finally {
+      setEnrollSearching(false);
+    }
+  };
+
+  const handleEnrollDeviceUser = async () => {
+    if (!enrollingPin || !enrollSelectedMember || !deviceUsersDevice) return;
+    setEnrolling(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/biometric/devices/${deviceUsersDevice.id}/enroll-device-user`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          memberId: enrollSelectedMember.id,
+          memberType: enrollSelectedMember.type,
+          deviceUserId: enrollingPin,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEnrollingPin(null);
+        setEnrollSelectedMember(null);
+        setEnrollSearchQuery('');
+        setEnrollSearchResults([]);
+        handleViewDeviceUsers(deviceUsersDevice);
+      } else {
+        setError(data.message || 'Failed to enroll');
+      }
+    } catch {
+      setError('Failed to enroll member');
+    } finally {
+      setEnrolling(false);
     }
   };
 
@@ -654,6 +797,13 @@ export default function BiometricPage() {
                   </td>
                   <td className="px-6 py-4 text-sm text-gray-500">{device._count.enrollments}</td>
                   <td className="px-6 py-4 text-sm space-x-2">
+                    <button
+                      onClick={() => handleViewDeviceUsers(device)}
+                      className="text-green-600 hover:text-green-800 font-medium"
+                      title="View all users on this device and download their fingerprints"
+                    >
+                      View Users
+                    </button>
                     <button
                       onClick={() => handleSyncTime(device.id)}
                       className="text-purple-600 hover:text-purple-800"
@@ -1146,6 +1296,254 @@ export default function BiometricPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Device Users Modal */}
+      {showDeviceUsers && deviceUsersDevice && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h2 className="text-xl font-bold text-gray-800">Users on Device: {deviceUsersDevice.name}</h2>
+                <p className="text-sm text-gray-500">Select users and download their fingerprints into the application</p>
+              </div>
+              <button
+                onClick={() => { setShowDeviceUsers(false); setDeviceUsersDevice(null); setDeviceUsers([]); setSelectedPins(new Set()); }}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            {deviceUsersLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                <span className="ml-3 text-gray-500">Loading users from device...</span>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={selectedPins.size === deviceUsers.length && deviceUsers.length > 0}
+                        onChange={handleSelectAllPins}
+                        className="rounded"
+                      />
+                      Select All ({deviceUsers.length} users)
+                    </label>
+                    {selectedPins.size > 0 && (
+                      <span className="text-sm text-green-600 font-medium">{selectedPins.size} selected</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleDownloadSelectedFp}
+                    disabled={selectedPins.size === 0 || downloadingFp}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
+                  >
+                    {downloadingFp ? 'Queuing...' : `Download FP for Selected (${selectedPins.size})`}
+                  </button>
+                </div>
+
+                <div className="overflow-auto flex-1 border rounded-lg">
+                  <table className="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase w-8"></th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">PIN</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Type</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">FP Stored</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Seen</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">In System</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {deviceUsers.map((user) => (
+                        <tr
+                          key={user.pin}
+                          className={`cursor-pointer hover:bg-gray-50 ${selectedPins.has(user.pin) ? 'bg-green-50' : ''}`}
+                          onClick={() => handleTogglePin(user.pin)}
+                        >
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              checked={selectedPins.has(user.pin)}
+                              onChange={() => handleTogglePin(user.pin)}
+                              onClick={e => e.stopPropagation()}
+                              className="rounded"
+                            />
+                          </td>
+                          <td className="px-4 py-3 font-mono font-medium text-gray-900">{user.pin}</td>
+                          <td className="px-4 py-3 text-gray-700">{user.name || <span className="text-gray-400 italic">Unknown</span>}</td>
+                          <td className="px-4 py-3">
+                            <span className={`px-2 py-0.5 rounded-full text-xs ${
+                              user.type === 'student' ? 'bg-blue-100 text-blue-800' :
+                              user.type === 'teacher' ? 'bg-purple-100 text-purple-800' :
+                              'bg-gray-100 text-gray-600'
+                            }`}>
+                              {user.type}
+                            </span>
+                          </td>
+                          <td className="px-4 py-3">
+                            {user.fpCount > 0 ? (
+                              <span className="text-green-600 font-medium">{user.fpCount} finger(s)</span>
+                            ) : (
+                              <span className="text-gray-400">None</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 text-xs">{user.lastSeen ? formatDateTime(user.lastSeen) : '-'}</td>
+                          <td className="px-4 py-3">
+                            {user.enrolled ? (
+                              <span className="text-green-600 text-xs font-medium">Yes</span>
+                            ) : (
+                              <span className="text-orange-500 text-xs font-medium">No</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                            {!user.enrolled && (
+                              <button
+                                onClick={() => {
+                                  setEnrollingPin(user.pin);
+                                  setEnrollMemberType('student');
+                                  setEnrollSearchQuery('');
+                                  setEnrollSearchResults([]);
+                                  setEnrollSelectedMember(null);
+                                }}
+                                className="text-xs bg-orange-500 text-white px-2 py-1 rounded hover:bg-orange-600 whitespace-nowrap"
+                              >
+                                + Add to App
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {deviceUsers.length === 0 && (
+                        <tr>
+                          <td colSpan={8} className="px-4 py-8 text-center text-gray-500">
+                            No users found on this device yet. Users appear here once they punch in or are enrolled.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="text-xs text-gray-400 mt-3">
+                  Tip: Select users whose fingerprints you want to save to the server, then click &quot;Download FP for Selected&quot;. The device will send the templates within 30 seconds.
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Add to App Sub-Modal */}
+      {enrollingPin && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-60">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md shadow-xl">
+            <div className="flex justify-between items-center mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-800">Add Device User to App</h3>
+                <p className="text-sm text-gray-500">PIN: <span className="font-mono font-semibold">{enrollingPin}</span></p>
+              </div>
+              <button
+                onClick={() => { setEnrollingPin(null); setEnrollSelectedMember(null); setEnrollSearchQuery(''); setEnrollSearchResults([]); }}
+                className="text-gray-400 hover:text-gray-600 text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Member Type</label>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setEnrollMemberType('student'); setEnrollSearchQuery(''); setEnrollSearchResults([]); setEnrollSelectedMember(null); }}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium border ${enrollMemberType === 'student' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    Student
+                  </button>
+                  <button
+                    onClick={() => { setEnrollMemberType('teacher'); setEnrollSearchQuery(''); setEnrollSearchResults([]); setEnrollSelectedMember(null); }}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium border ${enrollMemberType === 'teacher' ? 'bg-purple-600 text-white border-purple-600' : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'}`}
+                  >
+                    Teacher
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Search {enrollMemberType === 'student' ? 'Student' : 'Teacher'}</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={enrollSearchQuery}
+                    onChange={(e) => {
+                      setEnrollSearchQuery(e.target.value);
+                      setEnrollSelectedMember(null);
+                      handleSearchMembers(e.target.value, enrollMemberType);
+                    }}
+                    placeholder={`Search by name or code...`}
+                    className="w-full border rounded-lg px-3 py-2 pr-8"
+                    autoFocus
+                  />
+                  {enrollSearching && (
+                    <div className="absolute right-2 top-2.5">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                    </div>
+                  )}
+                </div>
+
+                {enrollSearchResults.length > 0 && !enrollSelectedMember && (
+                  <div className="mt-1 border rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                    {enrollSearchResults.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => { setEnrollSelectedMember(m); setEnrollSearchResults([]); setEnrollSearchQuery(`${m.name} (${m.code})`); }}
+                        className="w-full text-left px-3 py-2 hover:bg-gray-50 border-b last:border-b-0 text-sm"
+                      >
+                        <span className="font-medium">{m.name}</span>
+                        <span className="text-gray-400 ml-2 font-mono text-xs">{m.code}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {enrollSelectedMember && (
+                  <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium text-green-800">{enrollSelectedMember.name}</p>
+                      <p className="text-xs text-green-600 font-mono">{enrollSelectedMember.code} · {enrollSelectedMember.type}</p>
+                    </div>
+                    <button onClick={() => { setEnrollSelectedMember(null); setEnrollSearchQuery(''); }} className="text-green-600 hover:text-green-800 text-xs">
+                      Change
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  onClick={() => { setEnrollingPin(null); setEnrollSelectedMember(null); setEnrollSearchQuery(''); setEnrollSearchResults([]); }}
+                  className="px-4 py-2 border rounded-lg hover:bg-gray-50 text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleEnrollDeviceUser}
+                  disabled={!enrollSelectedMember || enrolling}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium"
+                >
+                  {enrolling ? 'Enrolling...' : 'Enroll'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -961,7 +961,12 @@ export class BiometricService {
 
         if (line.includes('=')) {
           // Key=Value format
-          const parts = line.split('\t');
+          // Handle "FP PIN=xxx\tFID=..." prefix from DATA QUERY USERINFO responses
+          let parsableLine = line;
+          if (/^FP\s+/i.test(parsableLine)) {
+            parsableLine = parsableLine.replace(/^FP\s+/i, '');
+          }
+          const parts = parsableLine.split('\t');
           for (const part of parts) {
             const [key, ...valueParts] = part.split('=');
             const value = valueParts.join('=');
@@ -1042,13 +1047,14 @@ export class BiometricService {
   }
 
   async queueDownloadFingerprintCommand(deviceId: string, pin: string) {
-    const commandData = `DATA QUERY BIODATA PIN=${pin}`;
-
+    // Use DATA QUERY USERINFO — this returns both user info AND fingerprint templates (FP lines)
+    // via OPERLOG. Confirmed working on ZKTeco CEBR devices.
+    // DATA QUERY BIODATA returns -3 (not found) for locally-enrolled templates on CEBR.
     return this.prisma.deviceCommand.create({
       data: {
         deviceId,
         commandType: 'download_fp',
-        commandData,
+        commandData: `DATA QUERY USERINFO PIN=${pin}`,
         status: 'pending',
       },
     });
@@ -1145,11 +1151,176 @@ export class BiometricService {
   }
 
   async getDeviceUsers(tenantId: string, deviceId: string) {
+    const device = await this.prisma.biometricDevice.findFirst({ where: { id: deviceId, tenantId } });
+    if (!device) return [];
+
+    // Enrolled users (added via software)
     const enrollments = await this.prisma.biometricEnrollment.findMany({
-      where: { deviceId, device: { tenantId }, status: 'active' },
-      select: { id: true, deviceUserId: true, memberType: true, enrolledAt: true },
+      where: { deviceId, status: 'active' },
+      include: {
+        student: { select: { id: true, fullName: true, studentCode: true } },
+        teacher: { select: { id: true, fullName: true, teacherCode: true } },
+      },
     });
-    return enrollments;
+
+    // Users seen in punch logs (may include direct-device registrations not in enrollments)
+    const punchPins = await this.prisma.biometricPunchLog.findMany({
+      where: { deviceId },
+      select: { deviceUserId: true, punchTime: true },
+      orderBy: { punchTime: 'desc' },
+      distinct: ['deviceUserId'],
+    });
+
+    // Merge: enrolled users get priority; punch-only users added as 'unknown'
+    const userMap = new Map<string, any>();
+
+    for (const e of enrollments) {
+      userMap.set(e.deviceUserId, {
+        pin: e.deviceUserId,
+        name: e.student?.fullName || e.teacher?.fullName || null,
+        code: e.student?.studentCode || e.teacher?.teacherCode || null,
+        type: e.memberType,
+        enrolled: true,
+        enrollmentId: e.id,
+        lastSeen: null,
+      });
+    }
+
+    for (const p of punchPins) {
+      if (userMap.has(p.deviceUserId)) {
+        userMap.get(p.deviceUserId).lastSeen = p.punchTime;
+      } else {
+        userMap.set(p.deviceUserId, {
+          pin: p.deviceUserId,
+          name: null,
+          code: null,
+          type: 'unknown',
+          enrolled: false,
+          enrollmentId: null,
+          lastSeen: p.punchTime,
+        });
+      }
+    }
+
+    // Attach FP counts
+    const allPins = Array.from(userMap.keys());
+    const fpCounts = allPins.length > 0 ? await this.getFingerprintCountsByPins(tenantId, allPins) : {};
+    for (const [pin, user] of userMap) {
+      user.fpCount = fpCounts[pin] || 0;
+    }
+
+    return Array.from(userMap.values()).sort((a, b) => a.pin.localeCompare(b.pin));
+  }
+
+  async searchMembers(tenantId: string, query: string, type?: string) {
+    const results: any[] = [];
+
+    if (!type || type === 'student') {
+      const students = await this.prisma.student.findMany({
+        where: {
+          tenantId,
+          OR: [
+            { fullName: { contains: query, mode: 'insensitive' } },
+            { studentCode: { contains: query, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true, fullName: true, studentCode: true },
+        take: 20,
+      });
+      for (const s of students) {
+        results.push({ id: s.id, name: s.fullName, code: s.studentCode, type: 'student' });
+      }
+    }
+
+    if (!type || type === 'teacher') {
+      const teachers = await this.prisma.teacher.findMany({
+        where: {
+          tenantId,
+          OR: [
+            { fullName: { contains: query, mode: 'insensitive' } },
+            { teacherCode: { contains: query, mode: 'insensitive' } },
+          ],
+        },
+        select: { id: true, fullName: true, teacherCode: true },
+        take: 20,
+      });
+      for (const t of teachers) {
+        results.push({ id: t.id, name: t.fullName, code: t.teacherCode, type: 'teacher' });
+      }
+    }
+
+    return results;
+  }
+
+  async enrollMember(tenantId: string, dto: { deviceId: string; memberId: string; memberType: 'student' | 'teacher'; deviceUserId: string }) {
+    const device = await this.prisma.biometricDevice.findFirst({
+      where: { id: dto.deviceId, tenantId },
+    });
+    if (!device) throw new NotFoundException('Device not found');
+
+    const existingEnrollment = await this.prisma.biometricEnrollment.findFirst({
+      where: {
+        OR: [
+          dto.memberType === 'student'
+            ? { deviceId: dto.deviceId, studentId: dto.memberId }
+            : { deviceId: dto.deviceId, teacherId: dto.memberId },
+          { deviceId: dto.deviceId, deviceUserId: dto.deviceUserId },
+        ],
+      },
+    });
+    if (existingEnrollment) {
+      throw new ConflictException('Member or device PIN already enrolled on this device');
+    }
+
+    let memberName = 'Unknown';
+    if (dto.memberType === 'student') {
+      const student = await this.prisma.student.findFirst({ where: { id: dto.memberId, tenantId } });
+      if (!student) throw new NotFoundException('Student not found');
+      memberName = student.fullName;
+    } else {
+      const teacher = await this.prisma.teacher.findFirst({ where: { id: dto.memberId, tenantId } });
+      if (!teacher) throw new NotFoundException('Teacher not found');
+      memberName = teacher.fullName;
+    }
+
+    const enrollment = await this.prisma.biometricEnrollment.create({
+      data: {
+        deviceId: dto.deviceId,
+        studentId: dto.memberType === 'student' ? dto.memberId : null,
+        teacherId: dto.memberType === 'teacher' ? dto.memberId : null,
+        deviceUserId: dto.deviceUserId,
+        memberType: dto.memberType,
+        status: 'active',
+      },
+      include: {
+        student: true,
+        teacher: true,
+        device: true,
+      },
+    });
+
+    // Push user to device
+    await this.queueSetUserCommand(dto.deviceId, dto.deviceUserId, memberName);
+
+    // Auto-push stored fingerprint templates
+    const fpTemplates = await this.prisma.fingerprintTemplate.findMany({
+      where: { tenantId, pin: dto.deviceUserId },
+    });
+    for (const tpl of fpTemplates) {
+      await this.queueUploadFingerprintCommand(dto.deviceId, dto.deviceUserId, tpl.fingerIndex, tpl.template, tpl.size);
+    }
+
+    return enrollment;
+  }
+
+  async downloadFpBatch(tenantId: string, deviceId: string, pins: string[]) {
+    const device = await this.prisma.biometricDevice.findFirst({ where: { id: deviceId, tenantId } });
+    if (!device) throw new NotFoundException('Device not found');
+
+    for (const pin of pins) {
+      await this.queueDownloadFingerprintCommand(deviceId, pin);
+    }
+    return { queued: pins.length };
   }
 
   async downloadAllFingerprintsFromDevice(tenantId: string, deviceId: string) {

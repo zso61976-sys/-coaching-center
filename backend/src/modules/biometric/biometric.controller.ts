@@ -222,6 +222,48 @@ export class BiometricController {
     return { success: true, data: result };
   }
 
+  @Get('search-members')
+  async searchMembers(
+    @Request() req: any,
+    @Query('q') query: string,
+    @Query('type') type?: string,
+  ) {
+    const tenantId = req.user.tenantId;
+    const results = await this.biometricService.searchMembers(tenantId, query || '', type);
+    return { success: true, data: results };
+  }
+
+  @Post('devices/:id/enroll-device-user')
+  async enrollDeviceUser(
+    @Request() req: any,
+    @Param('id') deviceId: string,
+    @Body() body: { memberId: string; memberType: 'student' | 'teacher'; deviceUserId: string },
+  ) {
+    const tenantId = req.user.tenantId;
+    const enrollment = await this.biometricService.enrollMember(tenantId, {
+      deviceId,
+      memberId: body.memberId,
+      memberType: body.memberType,
+      deviceUserId: body.deviceUserId,
+    });
+    return { success: true, data: enrollment, message: 'Member enrolled successfully' };
+  }
+
+  @Post('devices/:id/download-fp-batch')
+  async downloadFpBatch(
+    @Request() req: any,
+    @Param('id') deviceId: string,
+    @Body() body: { pins: string[] },
+  ) {
+    const tenantId = req.user.tenantId;
+    const result = await this.biometricService.downloadFpBatch(tenantId, deviceId, body.pins);
+    return {
+      success: true,
+      data: result,
+      message: `Queued fingerprint download for ${result.queued} user(s)`,
+    };
+  }
+
   @Get('devices/:id/commands')
   async getDeviceCommands(
     @Request() req: any,
