@@ -250,9 +250,14 @@ export class AdmsController {
       rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
     }
 
-    if (rawBody && serialNumber && (rawBody.includes('TMP=') || rawBody.includes('TEMPLATE=') || rawBody.includes('\t'))) {
-      // Body might contain fingerprint data from a DATA QUERY response
-      const hasFingerprintData = rawBody.includes('PIN=') && (rawBody.includes('TMP=') || rawBody.includes('TEMPLATE='));
+    if (rawBody && serialNumber) {
+      // Detect fingerprint data from DATA QUERY BIODATA or DATA QUERY FINGERTMP responses
+      // BIODATA format:   PIN=xxx\tFID=0\tSize=nnn\tValid=1\tTmp=<data>
+      // FINGERTMP format: PIN=xxx\tFID=0\tSize=nnn\tValid=1\tTMP=<data>
+      const hasFingerprintData =
+        rawBody.includes('PIN=') &&
+        (rawBody.includes('TMP=') || rawBody.includes('Tmp=') || rawBody.includes('TEMPLATE=')) &&
+        (rawBody.includes('FID=') || rawBody.includes('No=') || rawBody.includes('Index='));
       if (hasFingerprintData) {
         this.logger.log(`Fingerprint data detected in devicecmd response from ${serialNumber}`);
         try {
