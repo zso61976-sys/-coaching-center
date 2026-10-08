@@ -67,6 +67,12 @@ class CreateCompanyUserDto {
   role: string;
 }
 
+class ResetUserPasswordDto {
+  @IsString()
+  @MinLength(8)
+  password: string;
+}
+
 @Controller('super-admin')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('super_admin')
@@ -122,5 +128,14 @@ export class SuperAdminController {
     @Body() dto: CreateCompanyUserDto,
   ) {
     return this.superAdminService.createCompanyUser(companyId, dto);
+  }
+
+  @Put('companies/:id/users/:userId/password')
+  async resetCompanyUserPassword(
+    @Param('id') companyId: string,
+    @Param('userId') userId: string,
+    @Body() dto: ResetUserPasswordDto,
+  ) {
+    return this.superAdminService.resetCompanyUserPassword(companyId, userId, dto.password);
   }
 }

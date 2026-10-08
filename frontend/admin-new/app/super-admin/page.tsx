@@ -26,6 +26,14 @@ interface Company {
   createdAt: string;
 }
 
+interface CompanyUser {
+  id: string;
+  email: string;
+  fullName: string;
+  role: string;
+  status: string;
+}
+
 interface CreateCompanyForm {
   name: string;
   code: string;
@@ -53,6 +61,11 @@ export default function SuperAdminDashboard() {
   const [editForm, setEditForm] = useState({ name: '', code: '', status: 'active' });
   const [editError, setEditError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [companyUsers, setCompanyUsers] = useState<CompanyUser[]>([]);
+  const [newPasswords, setNewPasswords] = useState<Record<string, string>>({});
+  const [passwordMessages, setPasswordMessages] = useState<
+    Record<string, { ok: boolean; text: string }>
+  >({});
 
   const fetchData = useCallback(async () => {
     if (!token) return;
@@ -145,6 +158,60 @@ export default function SuperAdminDashboard() {
     setEditCompany(company);
     setEditForm({ name: company.name, code: company.code, status: company.status });
     setEditError('');
+    setCompanyUsers([]);
+    setNewPasswords({});
+    setPasswordMessages({});
+
+    fetch(`${API_URL}/super-admin/companies/${company.id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success) setCompanyUsers(data.data.users);
+      })
+      .catch((err) => console.error('Failed to fetch company users:', err));
+  };
+
+  const handleResetPassword = async (user: CompanyUser) => {
+    if (!editCompany) return;
+    const password = newPasswords[user.id] || '';
+    if (password.length < 8) {
+      setPasswordMessages({
+        ...passwordMessages,
+        [user.id]: { ok: false, text: 'Password must be at least 8 characters' },
+      });
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_URL}/super-admin/companies/${editCompany.id}/users/${user.id}/password`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ password }),
+        },
+      );
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const message = Array.isArray(data.message) ? data.message.join(', ') : data.message;
+        throw new Error(message || 'Failed to set password');
+      }
+
+      setNewPasswords({ ...newPasswords, [user.id]: '' });
+      setPasswordMessages({
+        ...passwordMessages,
+        [user.id]: { ok: true, text: 'New password saved' },
+      });
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to set password';
+      setPasswordMessages({ ...passwordMessages, [user.id]: { ok: false, text: errorMessage } });
+    }
   };
 
   const handleUpdateCompany = async (e: React.FormEvent) => {
@@ -456,7 +523,7 @@ export default function SuperAdminDashboard() {
       {/* Edit Company Modal */}
       {editCompany && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <h3 className="text-lg font-semibold text-gray-800">Edit Company</h3>
             </div>
@@ -513,6 +580,51 @@ export default function SuperAdminDashboard() {
                   <option value="inactive">Inactive</option>
                 </select>
               </div>
+
+              <hr className="my-4" />
+              <p className="text-sm text-gray-600 font-medium">Users &amp; Passwords</p>
+
+              {companyUsers.length === 0 && (
+                <p className="text-sm text-gray-500">No users found.</p>
+              )}
+
+              {companyUsers.map((user) => (
+                <div key={user.id} className="border border-gray-200 rounded-lg p-3">
+                  <div className="text-sm font-medium text-gray-800">
+                    {user.fullName}{' '}
+                    <span className="text-xs text-gray-500">({user.role})</span>
+                  </div>
+                  <div className="text-xs text-gray-500 mb-2">{user.email}</div>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={newPasswords[user.id] || ''}
+                      onChange={(e) =>
+                        setNewPasswords({ ...newPasswords, [user.id]: e.target.value })
+                      }
+                      className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                      placeholder="New password (min 8 characters)"
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleResetPassword(user)}
+                      className="px-3 py-1.5 bg-gray-800 text-white rounded-lg text-sm hover:bg-gray-700 transition-colors"
+                    >
+                      Set Password
+                    </button>
+                  </div>
+                  {passwordMessages[user.id] && (
+                    <p
+                      className={`text-xs mt-1 ${
+                        passwordMessages[user.id].ok ? 'text-green-600' : 'text-red-600'
+                      }`}
+                    >
+                      {passwordMessages[user.id].text}
+                    </p>
+                  )}
+                </div>
+              ))}
 
               <div className="flex justify-end gap-3 pt-4">
                 <button

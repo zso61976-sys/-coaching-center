@@ -332,4 +332,25 @@ export class SuperAdminService {
       },
     };
   }
+
+  async resetCompanyUserPassword(companyId: string, userId: string, password: string) {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, tenantId: companyId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found in this company');
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash },
+    });
+
+    return {
+      success: true,
+      data: { id: user.id, email: user.email },
+    };
+  }
 }
