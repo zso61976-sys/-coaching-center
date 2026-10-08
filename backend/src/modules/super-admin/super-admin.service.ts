@@ -193,7 +193,7 @@ export class SuperAdminService {
 
   async updateCompany(
     id: string,
-    data: { name?: string; status?: string; settings?: any },
+    data: { name?: string; code?: string; status?: string; settings?: any },
   ) {
     const company = await this.prisma.tenant.findUnique({ where: { id } });
 
@@ -201,10 +201,19 @@ export class SuperAdminService {
       throw new NotFoundException('Company not found');
     }
 
+    const code = data.code?.trim().toUpperCase();
+    if (code && code !== company.code) {
+      const existing = await this.prisma.tenant.findUnique({ where: { code } });
+      if (existing) {
+        throw new ConflictException('Company code already exists');
+      }
+    }
+
     const updated = await this.prisma.tenant.update({
       where: { id },
       data: {
         name: data.name ?? company.name,
+        code: code || company.code,
         status: data.status ?? company.status,
         settings: data.settings ?? company.settings,
       },

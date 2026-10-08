@@ -49,6 +49,10 @@ export default function SuperAdminDashboard() {
   });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [editCompany, setEditCompany] = useState<Company | null>(null);
+  const [editForm, setEditForm] = useState({ name: '', code: '', status: 'active' });
+  const [editError, setEditError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
     if (!token) return;
@@ -134,6 +138,47 @@ export default function SuperAdminDashboard() {
       }
     } catch (err) {
       console.error('Failed to update status:', err);
+    }
+  };
+
+  const openEditModal = (company: Company) => {
+    setEditCompany(company);
+    setEditForm({ name: company.name, code: company.code, status: company.status });
+    setEditError('');
+  };
+
+  const handleUpdateCompany = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editCompany) return;
+    setEditError('');
+    setSuccess('');
+    setSaving(true);
+
+    try {
+      const res = await fetch(`${API_URL}/super-admin/companies/${editCompany.id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(editForm),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const message = Array.isArray(data.message) ? data.message.join(', ') : data.message;
+        throw new Error(message || 'Failed to update company');
+      }
+
+      setSuccess(`Company "${data.data.name}" updated successfully!`);
+      setEditCompany(null);
+      fetchData();
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update company';
+      setEditError(errorMessage);
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -249,7 +294,13 @@ export default function SuperAdminDashboard() {
                       {company.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 space-x-4">
+                    <button
+                      onClick={() => openEditModal(company)}
+                      className="text-sm text-indigo-600 hover:text-indigo-800"
+                    >
+                      Edit
+                    </button>
                     <button
                       onClick={() => handleToggleStatus(company)}
                       className={`text-sm ${
@@ -395,6 +446,88 @@ export default function SuperAdminDashboard() {
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                 >
                   Create Company
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Company Modal */}
+      {editCompany && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4">
+            <div className="p-6 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-800">Edit Company</h3>
+            </div>
+
+            <form onSubmit={handleUpdateCompany} className="p-6 space-y-4">
+              {editError && (
+                <div className="bg-red-100 text-red-700 p-3 rounded-lg text-sm">
+                  {editError}
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Company Name
+                </label>
+                <input
+                  type="text"
+                  value={editForm.name}
+                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Company Code
+                </label>
+                <input
+                  type="text"
+                  value={editForm.code}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, code: e.target.value.toUpperCase() })
+                  }
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 uppercase"
+                  required
+                  minLength={3}
+                />
+                {editForm.code !== editCompany.code && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    Users of this company will need the new code to log in.
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                <select
+                  value={editForm.status}
+                  onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => setEditCompany(null)}
+                  className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : 'Save Changes'}
                 </button>
               </div>
             </form>

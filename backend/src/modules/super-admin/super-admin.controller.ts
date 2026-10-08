@@ -41,6 +41,11 @@ class UpdateCompanyDto {
 
   @IsOptional()
   @IsString()
+  @MinLength(3)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
   status?: string;
 
   @IsOptional()
