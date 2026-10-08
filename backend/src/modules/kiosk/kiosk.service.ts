@@ -2,11 +2,13 @@ import { Injectable, UnauthorizedException, ConflictException, BadRequestExcepti
 import { PrismaService } from '../../common/prisma.service';
 import { CheckInDto, CheckOutDto, VerifyDto } from './dto/kiosk.dto';
 import * as bcrypt from 'bcrypt';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class KioskService {
   constructor(
     private prisma: PrismaService,
+    private whatsappService: WhatsappService,
   ) {}
 
   async checkIn(dto: CheckInDto, tenantId: string) {
@@ -92,6 +94,14 @@ export class KioskService {
 
     // TODO: Queue Telegram notifications when Redis is available
     // Notifications disabled for testing without Redis
+
+    await this.whatsappService.notifyAttendance({
+      tenantId,
+      studentId: student.id,
+      attendanceId: attendance.id,
+      type: 'checkin',
+      time: attendance.checkinTime,
+    });
 
     // Log audit
     await this.prisma.auditLog.create({
@@ -208,6 +218,15 @@ export class KioskService {
 
     // TODO: Queue Telegram notifications when Redis is available
     // Notifications disabled for testing without Redis
+
+    await this.whatsappService.notifyAttendance({
+      tenantId,
+      studentId: openSession.studentId,
+      attendanceId: attendance.id,
+      type: 'checkout',
+      time: checkoutTime,
+      checkinTime,
+    });
 
     // Log audit
     await this.prisma.auditLog.create({

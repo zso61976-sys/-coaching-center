@@ -15,6 +15,7 @@ import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { UsersModule } from './modules/users/users.module';
 import { BiometricModule } from './modules/biometric/biometric.module';
 import { TelegramModule } from './modules/telegram/telegram.module';
+import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { TelegramModule } from './modules/telegram/telegram.module';
     UsersModule,
     BiometricModule,
     TelegramModule,
+    WhatsappModule,
   ],
 })
 export class AppModule {}

@@ -55,6 +55,11 @@ export default function DashboardLayout({
                   Users
                 </Link>
               )}
+              {hasRole('admin') && (
+                <Link href="/dashboard/whatsapp" className="hover:underline">
+                  WhatsApp
+                </Link>
+              )}
               {hasModuleAccess('biometric') && (
                 <Link href="/dashboard/biometric" className="hover:underline">
                   Biometric

@@ -8,6 +8,9 @@ RUN apk add --no-cache openssl openssl-dev libc6-compat
 FROM base AS builder
 WORKDIR /app
 
+# git is needed to fetch libsignal (a WhatsApp/Baileys dependency hosted on GitHub)
+RUN apk add --no-cache git
+
 # Install all dependencies (including devDependencies)
 COPY package*.json ./
 RUN npm ci

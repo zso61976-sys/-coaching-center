@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ConflictExc
 import { PrismaService } from '../../common/prisma.service';
 import { RegisterDeviceDto, UpdateDeviceDto, EnrollStudentDto, PunchDataDto, DeviceHandshakeDto } from './dto';
 import { TelegramService } from '../telegram/telegram.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class BiometricService {
@@ -10,6 +11,7 @@ export class BiometricService {
   constructor(
     private prisma: PrismaService,
     private telegramService: TelegramService,
+    private whatsappService: WhatsappService,
   ) {}
 
   // ==================== Device Management ====================
@@ -354,6 +356,18 @@ export class BiometricService {
       where: { id: device.id },
       data: { lastSyncAt: new Date() },
     });
+
+    // Send WhatsApp notifications to parents
+    if (attendance) {
+      await this.whatsappService.notifyAttendance({
+        tenantId: device.tenantId,
+        studentId: student.id,
+        attendanceId: attendance.id,
+        type: punchType === 'in' ? 'checkin' : 'checkout',
+        time: punchTime,
+        checkinTime: attendance.checkinTime ? new Date(attendance.checkinTime) : undefined,
+      });
+    }
 
     // Send Telegram notifications to parents
     if (attendance) {

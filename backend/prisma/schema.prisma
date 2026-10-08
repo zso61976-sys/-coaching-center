@@ -401,3 +401,35 @@ model FingerprintTemplate {
   @@index([tenantId, pin])
   @@map("fingerprint_templates")
 }
+
+// WhatsApp login session (Baileys auth state), one set of keys per company
+model WhatsappAuth {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  key       String   @db.VarChar(255)
+  value     String   @db.Text
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([tenantId, key])
+  @@map("whatsapp_auth")
+}
+
+model WhatsappMessageLog {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  studentId    String?   @map("student_id") @db.Uuid
+  parentId     String?   @map("parent_id") @db.Uuid
+  attendanceId String?   @map("attendance_id") @db.Uuid
+  studentName  String?   @map("student_name") @db.VarChar(255)
+  parentName   String?   @map("parent_name") @db.VarChar(255)
+  phone        String    @db.VarChar(30)
+  messageType  String    @map("message_type") @db.VarChar(50)
+  messageText  String    @map("message_text") @db.Text
+  status       String    @default("queued") @db.VarChar(20)
+  errorText    String?   @map("error_text") @db.Text
+  sentAt       DateTime? @map("sent_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([status])
+  @@map("whatsapp_message_logs")
+}
