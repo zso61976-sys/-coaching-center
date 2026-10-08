@@ -69,6 +69,8 @@ export default function SuperAdminDashboard() {
     Record<string, { ok: boolean; text: string }>
   >({});
   const [newUser, setNewUser] = useState(emptyNewUser);
+  const [passwordUserId, setPasswordUserId] = useState<string | null>(null);
+  const [showAddUser, setShowAddUser] = useState(false);
   const [newUserMessage, setNewUserMessage] = useState<{ ok: boolean; text: string } | null>(
     null,
   );
@@ -169,6 +171,8 @@ export default function SuperAdminDashboard() {
     setPasswordMessages({});
     setNewUser(emptyNewUser);
     setNewUserMessage(null);
+    setPasswordUserId(null);
+    setShowAddUser(false);
     loadCompanyUsers(company.id);
   };
 
@@ -216,7 +220,10 @@ export default function SuperAdminDashboard() {
     if (!editCompany) return;
     const error = await savePassword(editCompany.id, user.id, newPasswords[user.id] || '');
 
-    if (!error) setNewPasswords((prev) => ({ ...prev, [user.id]: '' }));
+    if (!error) {
+      setNewPasswords((prev) => ({ ...prev, [user.id]: '' }));
+      setPasswordUserId(null);
+    }
     setPasswordMessages((prev) => ({
       ...prev,
       [user.id]: error ? { ok: false, text: error } : { ok: true, text: 'New password saved' },
@@ -246,6 +253,7 @@ export default function SuperAdminDashboard() {
 
       setNewUserMessage({ ok: true, text: `User ${data.data.email} created` });
       setNewUser(emptyNewUser);
+      setShowAddUser(false);
       loadCompanyUsers(editCompany.id);
       fetchData();
     } catch (err: unknown) {
@@ -651,8 +659,20 @@ export default function SuperAdminDashboard() {
                     {user.fullName}{' '}
                     <span className="text-xs text-gray-500">({user.role})</span>
                   </div>
-                  <div className="text-xs text-gray-500 mb-2">{user.email}</div>
-                  <div className="flex gap-2">
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-gray-500">{user.email}</div>
+                    {passwordUserId !== user.id && (
+                      <button
+                        type="button"
+                        onClick={() => setPasswordUserId(user.id)}
+                        className="text-xs text-indigo-600 hover:text-indigo-800"
+                      >
+                        Change Password
+                      </button>
+                    )}
+                  </div>
+                  {passwordUserId === user.id && (
+                  <div className="flex gap-2 mt-2">
                     <input
                       type="password"
                       value={newPasswords[user.id] || ''}
@@ -668,6 +688,7 @@ export default function SuperAdminDashboard() {
                       className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
                       placeholder="New password (min 8 characters)"
                       autoComplete="new-password"
+                      autoFocus
                     />
                     <button
                       type="button"
@@ -676,7 +697,18 @@ export default function SuperAdminDashboard() {
                     >
                       Set Password
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPasswordUserId(null);
+                        setNewPasswords((prev) => ({ ...prev, [user.id]: '' }));
+                      }}
+                      className="px-2 py-1.5 text-sm text-gray-500 hover:text-gray-700"
+                    >
+                      Cancel
+                    </button>
                   </div>
+                  )}
                   {passwordMessages[user.id] && (
                     <p
                       className={`text-xs mt-1 ${
@@ -689,6 +721,17 @@ export default function SuperAdminDashboard() {
                 </div>
               ))}
 
+              {!showAddUser && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddUser(true)}
+                  className="w-full px-3 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-green-700 hover:bg-green-50 transition-colors"
+                >
+                  + Add User
+                </button>
+              )}
+
+              {showAddUser && (
               <div
                 className="border border-dashed border-gray-300 rounded-lg p-3 space-y-2"
                 onKeyDown={(e) => {
@@ -734,19 +777,34 @@ export default function SuperAdminDashboard() {
                     <option value="viewer">Viewer</option>
                   </select>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleAddUser}
-                  className="w-full px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors"
-                >
-                  + Add User
-                </button>
-                {newUserMessage && (
-                  <p className={`text-xs ${newUserMessage.ok ? 'text-green-600' : 'text-red-600'}`}>
-                    {newUserMessage.text}
-                  </p>
-                )}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleAddUser}
+                    className="flex-1 px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors"
+                  >
+                    Create User
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowAddUser(false);
+                      setNewUser(emptyNewUser);
+                      setNewUserMessage(null);
+                    }}
+                    className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
+              )}
+
+              {newUserMessage && (
+                <p className={`text-xs ${newUserMessage.ok ? 'text-green-600' : 'text-red-600'}`}>
+                  {newUserMessage.text}
+                </p>
+              )}
 
               <div className="flex justify-end gap-3 pt-4">
                 <button
