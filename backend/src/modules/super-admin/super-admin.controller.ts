@@ -13,7 +13,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { SuperAdminService } from './super-admin.service';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { IsString, IsEmail, MinLength, IsOptional } from 'class-validator';
+import { IsString, IsEmail, MinLength, IsOptional, IsIn } from 'class-validator';
 
 class CreateCompanyDto {
   @IsString()
@@ -63,7 +63,7 @@ class CreateCompanyUserDto {
   @IsString()
   fullName: string;
 
-  @IsString()
+  @IsIn(['admin', 'manager', 'staff', 'viewer'])
   role: string;
 }
 

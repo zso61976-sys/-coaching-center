@@ -42,6 +42,8 @@ interface CreateCompanyForm {
   adminFullName: string;
 }
 
+const emptyNewUser = { fullName: '', email: '', password: '', role: 'admin' };
+
 export default function SuperAdminDashboard() {
   const { token } = useAuth();
   const [stats, setStats] = useState<Stats | null>(null);
@@ -66,6 +68,10 @@ export default function SuperAdminDashboard() {
   const [passwordMessages, setPasswordMessages] = useState<
     Record<string, { ok: boolean; text: string }>
   >({});
+  const [newUser, setNewUser] = useState(emptyNewUser);
+  const [newUserMessage, setNewUserMessage] = useState<{ ok: boolean; text: string } | null>(
+    null,
+  );
 
   const fetchData = useCallback(async () => {
     if (!token) return;
@@ -161,8 +167,13 @@ export default function SuperAdminDashboard() {
     setCompanyUsers([]);
     setNewPasswords({});
     setPasswordMessages({});
+    setNewUser(emptyNewUser);
+    setNewUserMessage(null);
+    loadCompanyUsers(company.id);
+  };
 
-    fetch(`${API_URL}/super-admin/companies/${company.id}`, {
+  const loadCompanyUsers = (companyId: string) => {
+    fetch(`${API_URL}/super-admin/companies/${companyId}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())
@@ -172,20 +183,13 @@ export default function SuperAdminDashboard() {
       .catch((err) => console.error('Failed to fetch company users:', err));
   };
 
-  const handleResetPassword = async (user: CompanyUser) => {
-    if (!editCompany) return;
-    const password = newPasswords[user.id] || '';
-    if (password.length < 8) {
-      setPasswordMessages({
-        ...passwordMessages,
-        [user.id]: { ok: false, text: 'Password must be at least 8 characters' },
-      });
-      return;
-    }
+  // Returns an error message, or null when the password was saved
+  const savePassword = async (companyId: string, userId: string, password: string) => {
+    if (password.length < 8) return 'Password must be at least 8 characters';
 
     try {
       const res = await fetch(
-        `${API_URL}/super-admin/companies/${editCompany.id}/users/${user.id}/password`,
+        `${API_URL}/super-admin/companies/${companyId}/users/${userId}/password`,
         {
           method: 'PUT',
           headers: {
@@ -200,17 +204,53 @@ export default function SuperAdminDashboard() {
 
       if (!res.ok) {
         const message = Array.isArray(data.message) ? data.message.join(', ') : data.message;
-        throw new Error(message || 'Failed to set password');
+        return message || 'Failed to set password';
+      }
+      return null;
+    } catch {
+      return 'Failed to set password';
+    }
+  };
+
+  const handleResetPassword = async (user: CompanyUser) => {
+    if (!editCompany) return;
+    const error = await savePassword(editCompany.id, user.id, newPasswords[user.id] || '');
+
+    if (!error) setNewPasswords((prev) => ({ ...prev, [user.id]: '' }));
+    setPasswordMessages((prev) => ({
+      ...prev,
+      [user.id]: error ? { ok: false, text: error } : { ok: true, text: 'New password saved' },
+    }));
+  };
+
+  const handleAddUser = async () => {
+    if (!editCompany) return;
+    setNewUserMessage(null);
+
+    try {
+      const res = await fetch(`${API_URL}/super-admin/companies/${editCompany.id}/users`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(newUser),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const message = Array.isArray(data.message) ? data.message.join(', ') : data.message;
+        throw new Error(message || 'Failed to create user');
       }
 
-      setNewPasswords({ ...newPasswords, [user.id]: '' });
-      setPasswordMessages({
-        ...passwordMessages,
-        [user.id]: { ok: true, text: 'New password saved' },
-      });
+      setNewUserMessage({ ok: true, text: `User ${data.data.email} created` });
+      setNewUser(emptyNewUser);
+      loadCompanyUsers(editCompany.id);
+      fetchData();
     } catch (err: unknown) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to set password';
-      setPasswordMessages({ ...passwordMessages, [user.id]: { ok: false, text: errorMessage } });
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create user';
+      setNewUserMessage({ ok: false, text: errorMessage });
     }
   };
 
@@ -222,6 +262,23 @@ export default function SuperAdminDashboard() {
     setSaving(true);
 
     try {
+      // Save any passwords typed into the user list as part of Save Changes
+      const passwordErrors: string[] = [];
+      for (const user of companyUsers) {
+        const password = newPasswords[user.id];
+        if (!password) continue;
+        const error = await savePassword(editCompany.id, user.id, password);
+        if (error) passwordErrors.push(`${user.email}: ${error}`);
+        else setNewPasswords((prev) => ({ ...prev, [user.id]: '' }));
+        setPasswordMessages((prev) => ({
+          ...prev,
+          [user.id]: error ? { ok: false, text: error } : { ok: true, text: 'New password saved' },
+        }));
+      }
+      if (passwordErrors.length > 0) {
+        throw new Error(`Password not saved — ${passwordErrors.join('; ')}`);
+      }
+
       const res = await fetch(`${API_URL}/super-admin/companies/${editCompany.id}`, {
         method: 'PUT',
         headers: {
@@ -602,6 +659,12 @@ export default function SuperAdminDashboard() {
                       onChange={(e) =>
                         setNewPasswords({ ...newPasswords, [user.id]: e.target.value })
                       }
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleResetPassword(user);
+                        }
+                      }}
                       className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
                       placeholder="New password (min 8 characters)"
                       autoComplete="new-password"
@@ -625,6 +688,65 @@ export default function SuperAdminDashboard() {
                   )}
                 </div>
               ))}
+
+              <div
+                className="border border-dashed border-gray-300 rounded-lg p-3 space-y-2"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddUser();
+                  }
+                }}
+              >
+                <p className="text-sm font-medium text-gray-700">Add New User</p>
+                <input
+                  type="text"
+                  value={newUser.fullName}
+                  onChange={(e) => setNewUser({ ...newUser, fullName: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Full name"
+                />
+                <input
+                  type="email"
+                  value={newUser.email}
+                  onChange={(e) => setNewUser({ ...newUser, email: e.target.value })}
+                  className="w-full px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Email (used as login ID)"
+                  autoComplete="off"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={newUser.password}
+                    onChange={(e) => setNewUser({ ...newUser, password: e.target.value })}
+                    className="flex-1 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                    placeholder="Password (min 8 characters)"
+                    autoComplete="new-password"
+                  />
+                  <select
+                    value={newUser.role}
+                    onChange={(e) => setNewUser({ ...newUser, role: e.target.value })}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+                  >
+                    <option value="admin">Admin</option>
+                    <option value="manager">Manager</option>
+                    <option value="staff">Staff</option>
+                    <option value="viewer">Viewer</option>
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleAddUser}
+                  className="w-full px-3 py-1.5 bg-green-600 text-white rounded-lg text-sm hover:bg-green-700 transition-colors"
+                >
+                  + Add User
+                </button>
+                {newUserMessage && (
+                  <p className={`text-xs ${newUserMessage.ok ? 'text-green-600' : 'text-red-600'}`}>
+                    {newUserMessage.text}
+                  </p>
+                )}
+              </div>
 
               <div className="flex justify-end gap-3 pt-4">
                 <button
