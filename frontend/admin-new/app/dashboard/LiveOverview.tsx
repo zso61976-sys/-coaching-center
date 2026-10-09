@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../contexts/AuthContext';
+import ClassAttendanceChart, { ClassAttendance } from './ClassAttendanceChart';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api`
@@ -71,7 +72,6 @@ interface ActivityEvent {
   code: string;
 }
 
-type AttendanceFilter = 'all' | 'inside' | 'left' | 'absent';
 type ActivityFilter = 'all' | 'in' | 'out';
 
 const SIM_STATUS: Record<SimStatus, { label: string; dot: string; text: string }> = {
@@ -81,14 +81,9 @@ const SIM_STATUS: Record<SimStatus, { label: string; dot: string; text: string }
   disconnected: { label: 'Offline', dot: 'bg-red-500', text: 'text-red-700' },
 };
 
-const ATTENDANCE_STATE: Record<StudentRow['state'], { label: string; className: string }> = {
-  inside: { label: 'Inside', className: 'bg-green-100 text-green-800' },
-  left: { label: 'Left', className: 'bg-blue-100 text-blue-800' },
-  absent: { label: 'Not arrived', className: 'bg-gray-100 text-gray-600' },
-};
-
-function todayKey() {
+function dateKey(daysAgo = 0) {
   const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
@@ -142,6 +137,51 @@ function buildStudentRows(students: any[], sessions: Session[]): StudentRow[] {
     });
 }
 
+/** Students present (checked in at least once) per class, today and yesterday */
+function buildClassAttendance(students: any[], today: Session[], yesterday: Session[]): ClassAttendance[] {
+  const classOf = new Map<string, string>();
+  for (const s of students) classOf.set(s.student_id, (s.grade || '').trim() || 'No class');
+
+  const presentByClass = (sessions: Session[]) => {
+    const seen = new Map<string, Set<string>>();
+    for (const session of sessions) {
+      const id = session.student?.student_id;
+      if (!id) continue;
+      const cls = classOf.get(id) || 'No class';
+      if (!seen.has(cls)) seen.set(cls, new Set());
+      seen.get(cls)!.add(id);
+    }
+    return seen;
+  };
+  const todayPresent = presentByClass(today);
+  const yesterdayPresent = presentByClass(yesterday);
+
+  const totals = new Map<string, number>();
+  for (const s of students) {
+    if (s.status !== 'active') continue;
+    const cls = classOf.get(s.student_id)!;
+    totals.set(cls, (totals.get(cls) || 0) + 1);
+  }
+
+  const classes = new Set(
+    Array.from(totals.keys())
+      .concat(Array.from(todayPresent.keys()))
+      .concat(Array.from(yesterdayPresent.keys())),
+  );
+  return Array.from(classes)
+    .map((name) => ({
+      name,
+      total: totals.get(name) || 0,
+      today: todayPresent.get(name)?.size || 0,
+      yesterday: yesterdayPresent.get(name)?.size || 0,
+    }))
+    .sort((a, b) => {
+      if (a.name === 'No class') return 1;
+      if (b.name === 'No class') return -1;
+      return a.name.localeCompare(b.name, undefined, { numeric: true });
+    });
+}
+
 /** Every check-in and check-out today, newest first */
 function buildActivity(sessions: Session[]): ActivityEvent[] {
   const events: ActivityEvent[] = [];
@@ -156,30 +196,12 @@ function buildActivity(sessions: Session[]): ActivityEvent[] {
   return events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 }
 
-function StatCard({
-  label,
-  value,
-  accent,
-  onClick,
-  active,
-}: {
-  label: string;
-  value: string | number;
-  accent: string;
-  onClick?: () => void;
-  active?: boolean;
-}) {
-  const Tag = onClick ? 'button' : 'div';
+function StatCard({ label, value, accent }: { label: string; value: string | number; accent: string }) {
   return (
-    <Tag
-      onClick={onClick}
-      className={`bg-white rounded-xl shadow-sm p-5 text-left border-l-4 ${accent} ${
-        onClick ? 'hover:shadow-md transition-shadow' : ''
-      } ${active ? 'ring-2 ring-green-500' : ''}`}
-    >
+    <div className={`bg-white rounded-xl shadow-sm p-5 border-l-4 ${accent}`}>
       <p className="text-sm text-gray-500">{label}</p>
       <p className="text-3xl font-bold text-gray-800 mt-1">{value}</p>
-    </Tag>
+    </div>
   );
 }
 
@@ -195,8 +217,7 @@ export default function LiveOverview() {
   const [studentRows, setStudentRows] = useState<StudentRow[] | null>(null);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
-  const [attendanceFilter, setAttendanceFilter] = useState<AttendanceFilter>('all');
-  const [search, setSearch] = useState('');
+  const [classData, setClassData] = useState<ClassAttendance[] | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -219,10 +240,13 @@ export default function LiveOverview() {
       canSeeDevices ? get('/admin/biometric/devices') : Promise.resolve(null),
       canSeeStudents ? get('/admin/students') : Promise.resolve(null),
       canSeeStudents
-        ? get(`/admin/attendance/report?date=${todayKey()}&limit=1000`)
+        ? get(`/admin/attendance/report?date=${dateKey(0)}&limit=1000`)
+        : Promise.resolve(null),
+      canSeeStudents
+        ? get(`/admin/attendance/report?date=${dateKey(1)}&limit=1000`)
         : Promise.resolve(null),
     ]);
-    const [s, w, d, st, att] = results;
+    const [s, w, d, st, att, attYesterday] = results;
     if (s.status === 'fulfilled') setStats(s.value);
     if (w.status === 'fulfilled') setWhatsapp(w.value);
     if (d.status === 'fulfilled') setDevices(d.value);
@@ -230,7 +254,11 @@ export default function LiveOverview() {
       const sessions: Session[] = att.value.records || [];
       setActivity(buildActivity(sessions));
       if (st.status === 'fulfilled' && st.value) {
-        setStudentRows(buildStudentRows(st.value.students || [], sessions));
+        const students = st.value.students || [];
+        setStudentRows(buildStudentRows(students, sessions));
+        if (attYesterday.status === 'fulfilled' && attYesterday.value) {
+          setClassData(buildClassAttendance(students, sessions, attYesterday.value.records || []));
+        }
       }
     }
     setFailed(results.every((r) => r.status === 'rejected'));
@@ -249,20 +277,10 @@ export default function LiveOverview() {
   const backupOnline = activeSims.some((s) => s.role === 'backup' && s.status === 'connected');
 
   const counts = {
-    all: studentRows?.length || 0,
     inside: studentRows?.filter((r) => r.state === 'inside').length || 0,
     left: studentRows?.filter((r) => r.state === 'left').length || 0,
     absent: studentRows?.filter((r) => r.state === 'absent').length || 0,
   };
-  const searchLower = search.trim().toLowerCase();
-  const visibleRows = (studentRows || []).filter(
-    (r) =>
-      (attendanceFilter === 'all' || r.state === attendanceFilter) &&
-      (!searchLower ||
-        r.name.toLowerCase().includes(searchLower) ||
-        r.code.toLowerCase().includes(searchLower) ||
-        (r.biometricId || '').toLowerCase().includes(searchLower)),
-  );
 
   const onlineDevices = (devices || []).filter(
     (d) => d.lastSyncAt && Date.now() - new Date(d.lastSyncAt).getTime() < DEVICE_ONLINE_MS,
@@ -276,9 +294,6 @@ export default function LiveOverview() {
   const visibleActivity = activity
     .filter((e) => activityFilter === 'all' || e.type === activityFilter)
     .slice(0, FEED_SIZE);
-
-  const toggleFilter = (filter: AttendanceFilter) =>
-    setAttendanceFilter((current) => (current === filter ? 'all' : filter));
 
   return (
     <div className="space-y-6">
@@ -360,31 +375,13 @@ export default function LiveOverview() {
         </div>
       )}
 
-      {/* Counters (click to filter the list) */}
+      {/* Counters */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {studentRows ? (
           <>
-            <StatCard
-              label="🟢 Inside now"
-              value={counts.inside}
-              accent="border-green-500"
-              onClick={() => toggleFilter('inside')}
-              active={attendanceFilter === 'inside'}
-            />
-            <StatCard
-              label="🔵 Left"
-              value={counts.left}
-              accent="border-blue-500"
-              onClick={() => toggleFilter('left')}
-              active={attendanceFilter === 'left'}
-            />
-            <StatCard
-              label="⚪ Not arrived"
-              value={counts.absent}
-              accent="border-gray-400"
-              onClick={() => toggleFilter('absent')}
-              active={attendanceFilter === 'absent'}
-            />
+            <StatCard label="🟢 Inside now" value={counts.inside} accent="border-green-500" />
+            <StatCard label="🔵 Left" value={counts.left} accent="border-blue-500" />
+            <StatCard label="⚪ Not arrived" value={counts.absent} accent="border-gray-400" />
           </>
         ) : (
           <>
@@ -468,89 +465,13 @@ export default function LiveOverview() {
             )}
           </div>
 
-          {/* Today's attendance per student */}
-          <div className="bg-white rounded-xl shadow-sm xl:col-span-2">
-            <div className="p-4 sm:p-6 border-b border-gray-200 flex flex-wrap gap-3 justify-between items-center">
-              <h3 className="text-lg font-semibold text-gray-800">Today&apos;s attendance</h3>
-              <input
-                type="search"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search name or ID"
-                className="w-full sm:w-56 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
-              />
-            </div>
-            <div className="px-4 sm:px-6 pt-4 flex flex-wrap gap-2">
-              {([
-                ['all', 'All'],
-                ['inside', 'Inside'],
-                ['left', 'Left'],
-                ['absent', 'Not arrived'],
-              ] as const).map(([key, label]) => (
-                <button
-                  key={key}
-                  onClick={() => setAttendanceFilter(key)}
-                  className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
-                    attendanceFilter === key
-                      ? 'bg-green-600 text-white'
-                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {label} ({counts[key]})
-                </button>
-              ))}
-            </div>
-            <div className="overflow-x-auto mt-3">
-              <table className="w-full text-sm">
-                <thead className="bg-gray-50">
-                  <tr>
-                    {['ID', 'Name', 'Class', 'Status', 'Check-in', 'Check-out'].map((h) => (
-                      <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
-                        {h}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {visibleRows.map((row) => {
-                    const state = ATTENDANCE_STATE[row.state];
-                    return (
-                      <tr key={row.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-2.5 font-mono text-gray-700 whitespace-nowrap">
-                          {row.code}
-                          {row.biometricId && row.biometricId !== row.code && (
-                            <span className="block text-xs text-gray-400">Device ID {row.biometricId}</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2.5 text-gray-900">{row.name}</td>
-                        <td className="px-4 py-2.5 text-gray-600">{row.grade || '—'}</td>
-                        <td className="px-4 py-2.5">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${state.className}`}>
-                            {state.label}
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{formatTime(row.checkIn)}</td>
-                        <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{formatTime(row.checkOut)}</td>
-                      </tr>
-                    );
-                  })}
-                  {studentRows && visibleRows.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                        No students match.
-                      </td>
-                    </tr>
-                  )}
-                  {!studentRows && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
-                        Loading...
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+          {/* Present by class: today vs yesterday */}
+          <div className="xl:col-span-2">
+            {classData ? (
+              <ClassAttendanceChart data={classData} />
+            ) : (
+              <div className="bg-white rounded-xl shadow-sm p-6 text-sm text-gray-500">Loading...</div>
+            )}
           </div>
         </div>
       )}
