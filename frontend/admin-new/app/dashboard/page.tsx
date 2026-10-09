@@ -1013,8 +1013,8 @@ export default function DashboardPage() {
           biometric_id: formData.biometricId || undefined,
           branch_id: '660e8400-e29b-41d4-a716-446655440002',
           device_ids: formData.selectedDevices,
-          parents: formData.parentName && formData.parentPhone ? [{
-            full_name: formData.parentName,
+          parents: formData.parentPhone.trim() ? [{
+            full_name: formData.parentName.trim() || `Parent of ${formData.name}`,
             phone: formData.parentPhone,
             relationship: 'guardian',
             is_primary: true,
@@ -1242,8 +1242,8 @@ export default function DashboardPage() {
           grade: formData.grade,
           status: 'active',
           device_ids: formData.selectedDevices,
-          parents: formData.parentName && formData.parentPhone ? [{
-            fullName: formData.parentName,
+          parents: formData.parentPhone.trim() ? [{
+            fullName: formData.parentName.trim() || `Parent of ${formData.name}`,
             phone: formData.parentPhone,
             relationship: 'guardian',
             isPrimary: true,
@@ -1753,7 +1753,7 @@ export default function DashboardPage() {
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Parent Phone (for Telegram)
+                        Parent Mobile (WhatsApp notifications)
                       </label>
                       <input
                         type="tel"

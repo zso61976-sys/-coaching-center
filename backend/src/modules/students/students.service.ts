@@ -171,11 +171,11 @@ export class StudentsService {
         });
 
         // Create parent if provided
-        if (s.parentName && s.parentPhone) {
+        if (s.parentPhone) {
           const parent = await this.prisma.parent.create({
             data: {
               tenantId,
-              fullName: s.parentName,
+              fullName: s.parentName || `Parent of ${s.fullName}`,
               phone: s.parentPhone,
               telegramChatId: s.telegramChatId || undefined,
               telegramConnectedAt: s.telegramChatId ? new Date() : undefined,
