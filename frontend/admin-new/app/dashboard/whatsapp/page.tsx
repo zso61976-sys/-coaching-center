@@ -18,10 +18,13 @@ interface Settings {
   timeZone: string;
 }
 
+type SimRole = 'balance' | 'backup';
+
 interface Account {
   id: string;
   label: string;
   enabled: boolean;
+  role: SimRole;
   linked: boolean;
   status: ConnectionStatus;
   qr: string | null;
@@ -176,6 +179,21 @@ export default function WhatsappPage() {
       await loadStatus();
     });
 
+  const handleRole = (account: Account, role: SimRole) => {
+    if (account.role === role) return;
+    run(async () => {
+      await request(`/accounts/${account.id}`, 'PUT', { role });
+      await loadStatus();
+      setMessage({
+        ok: true,
+        text:
+          role === 'backup'
+            ? `${account.label} is now a backup SIM. Its parents were moved to the balancing SIMs.`
+            : `${account.label} is now a balancing SIM and has taken its share of parents.`,
+      });
+    });
+  };
+
   const handleRename = (e: React.FormEvent) => {
     e.preventDefault();
     if (!renaming) return;
@@ -235,7 +253,10 @@ export default function WhatsappPage() {
   }
 
   const connectedCount = accounts.filter((a) => a.status === 'connected').length;
-  const linkedCount = accounts.filter((a) => a.linked && a.enabled).length;
+  const linkedCount = accounts.filter((a) => a.linked && a.enabled && a.role === 'balance').length;
+  const backupOnline = accounts.some(
+    (a) => a.role === 'backup' && a.enabled && a.status === 'connected',
+  );
 
   return (
     <div className="space-y-6">
@@ -259,7 +280,8 @@ export default function WhatsappPage() {
 
       {accounts.some((a) => a.linked && a.enabled && a.status !== 'connected' && a.status !== 'qr') && (
         <div className="p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200">
-          ⚠️ A SIM is offline. Its parents are being sent from your other connected SIMs until it is back.
+          ⚠️ A SIM is offline. Its parents are being sent from{' '}
+          {backupOnline ? 'the backup SIM' : 'your other connected SIMs'} until it is back.
         </div>
       )}
 
@@ -343,8 +365,33 @@ export default function WhatsappPage() {
                 )}
 
                 <div className="flex gap-4 text-sm text-gray-600">
-                  <span>👪 {account.assignedParents} parents</span>
+                  {account.role === 'backup' ? (
+                    <span>🛟 Covers all SIMs</span>
+                  ) : (
+                    <span>👪 {account.assignedParents} parents</span>
+                  )}
                   <span>📤 {account.sentToday} sent today</span>
+                </div>
+
+                <div className="space-y-1.5 border-t border-gray-100 pt-3">
+                  {([
+                    ['balance', 'Balancing SIM', 'Shares the parents equally with the other balancing SIMs'],
+                    ['backup', 'Backup SIM', 'No parents of its own; sends when any balancing SIM is down'],
+                  ] as const).map(([role, title, help]) => (
+                    <label key={role} className="flex items-start gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={account.role === role}
+                        onChange={() => handleRole(account, role)}
+                        disabled={busy}
+                        className="w-4 h-4 mt-0.5"
+                      />
+                      <span className="text-sm">
+                        <span className="font-medium text-gray-800">{title}</span>
+                        <span className="block text-xs text-gray-500">{help}</span>
+                      </span>
+                    </label>
+                  ))}
                 </div>
 
                 {account.status === 'qr' && account.qr && (
@@ -401,9 +448,9 @@ export default function WhatsappPage() {
         </div>
 
         <p className="text-xs text-gray-500 border-t pt-3">
-          New parents go to the SIM with the fewest parents. After adding a SIM, click{' '}
-          <strong>Rebalance parents</strong> to spread everyone evenly. Each phone must open WhatsApp
-          at least once every 14 days, or WhatsApp unlinks it.
+          Parents are spread evenly over the balancing SIMs automatically whenever a SIM is connected,
+          paused, removed or changes role. A backup SIM sends for any balancing SIM that is down. Each
+          phone must open WhatsApp at least once every 14 days, or WhatsApp unlinks it.
         </p>
       </div>
 

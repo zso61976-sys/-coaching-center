@@ -15,6 +15,8 @@ import { clearDbAuthState, useDbAuthState } from './whatsapp-auth-state';
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'qr' | 'connected';
 
+export type SimRole = 'balance' | 'backup';
+
 interface Session {
   accountId: string;
   tenantId: string;
@@ -115,6 +117,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   // recipient's phone could not decrypt it (otherwise it shows "Waiting for this message")
   private msgRetryCounterCache = new MemoryCache(60 * 60 * 1000);
   private sentMessages = new MemoryCache(24 * 60 * 60 * 1000);
+  /** One rebalance at a time per company */
+  private rebalanceLocks = new Map<string, Promise<unknown>>();
 
   constructor(
     private prisma: PrismaService,
@@ -211,6 +215,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         id: account.id,
         label: account.label,
         enabled: account.enabled,
+        role: account.role as SimRole,
         linked: linkedIds.has(account.id),
         status,
         qr: status === 'qr' ? session?.qr || null : null,
@@ -238,22 +243,32 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async createAccount(tenantId: string, label?: string) {
+  async createAccount(tenantId: string, label?: string, role: SimRole = 'balance') {
     const count = await this.prisma.whatsappAccount.count({ where: { tenantId } });
     return this.prisma.whatsappAccount.create({
-      data: { tenantId, label: label?.trim() || `SIM ${count + 1}` },
+      data: { tenantId, label: label?.trim() || `SIM ${count + 1}`, role },
     });
   }
 
-  async updateAccount(tenantId: string, accountId: string, data: { label?: string; enabled?: boolean }) {
-    await this.getAccount(tenantId, accountId);
-    return this.prisma.whatsappAccount.update({
+  async updateAccount(
+    tenantId: string,
+    accountId: string,
+    data: { label?: string; enabled?: boolean; role?: SimRole },
+  ) {
+    const before = await this.getAccount(tenantId, accountId);
+    const updated = await this.prisma.whatsappAccount.update({
       where: { id: accountId },
       data: {
         label: data.label?.trim() || undefined,
         enabled: data.enabled,
+        role: data.role,
       },
     });
+    // Pausing/resuming or switching between balancing and backup changes who shares the parents
+    if (before.enabled !== updated.enabled || before.role !== updated.role) {
+      await this.autoRebalance(tenantId);
+    }
+    return updated;
   }
 
   async deleteAccount(tenantId: string, accountId: string) {
@@ -265,6 +280,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       data: { whatsappAccountId: null },
     });
     await this.prisma.whatsappAccount.delete({ where: { id: accountId } });
+    await this.autoRebalance(tenantId);
     return { success: true };
   }
 
@@ -332,6 +348,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         session.reconnectAttempts = 0;
         session.phone = (sock.user?.id || '').split(':')[0].split('@')[0] || null;
         this.logger.log(`WhatsApp SIM ${accountId} connected (${session.phone})`);
+        // A newly linked balancing SIM takes its share of the parents
+        await this.autoRebalance(session.tenantId);
       }
 
       if (connection === 'close') {
@@ -387,10 +405,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   // Assigning parents to SIMs
   // ---------------------------------------------------------------------------
 
-  /** Enabled SIMs of the company that have been linked by QR scan */
+  /** Enabled balancing SIMs of the company that have been linked by QR scan */
   private async linkedAccountIds(tenantId: string) {
     const accounts = await this.prisma.whatsappAccount.findMany({
-      where: { tenantId, enabled: true },
+      where: { tenantId, enabled: true, role: 'balance' },
       orderBy: { createdAt: 'asc' },
       select: { id: true },
     });
@@ -432,7 +450,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async rebalance(tenantId: string) {
     const accountIds = await this.linkedAccountIds(tenantId);
     if (accountIds.length === 0) {
-      throw new BadRequestException('Link at least one WhatsApp number first');
+      throw new BadRequestException('Link at least one balancing WhatsApp number first');
     }
 
     const parents = await this.prisma.parent.findMany({
@@ -487,6 +505,23 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     return { success: true, moved, total: parents.length };
   }
 
+  /** Rebalance after SIM changes; never throws, one run at a time per company */
+  private async autoRebalance(tenantId: string) {
+    const previous = this.rebalanceLocks.get(tenantId) || Promise.resolve();
+    const run = previous
+      .catch(() => undefined)
+      .then(async () => {
+        if ((await this.linkedAccountIds(tenantId)).length === 0) return;
+        const result = await this.rebalance(tenantId);
+        if (result.moved > 0) {
+          this.logger.log(`Rebalanced WhatsApp parents for ${tenantId}: ${result.moved} moved`);
+        }
+      })
+      .catch((err) => this.logger.error(`Auto rebalance failed for ${tenantId}: ${err.message}`));
+    this.rebalanceLocks.set(tenantId, run);
+    await run;
+  }
+
   // ---------------------------------------------------------------------------
   // Sending
   // ---------------------------------------------------------------------------
@@ -506,11 +541,17 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (session?.status !== 'connected' || session.tenantId !== tenantId) {
       session = undefined;
       if (!strict) {
+        // The parent's SIM is down: use a backup SIM first, then another balancing SIM
         const enabled = await this.prisma.whatsappAccount.findMany({
           where: { tenantId, enabled: true },
-          select: { id: true },
+          orderBy: { createdAt: 'asc' },
+          select: { id: true, role: true },
         });
-        session = enabled
+        const ordered = [
+          ...enabled.filter((a) => a.role === 'backup'),
+          ...enabled.filter((a) => a.role !== 'backup'),
+        ];
+        session = ordered
           .map((a) => this.sessions.get(a.id))
           .find((s) => s?.status === 'connected');
       }

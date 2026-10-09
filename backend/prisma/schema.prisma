@@ -412,6 +412,9 @@ model WhatsappAccount {
   tenantId  String   @map("tenant_id") @db.Uuid
   label     String   @db.VarChar(100)
   enabled   Boolean  @default(true)
+  // 'balance': shares the parents with the other balancing SIMs
+  // 'backup': no parents of its own, sends only when a balancing SIM is down
+  role      String   @default("balance") @db.VarChar(20)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

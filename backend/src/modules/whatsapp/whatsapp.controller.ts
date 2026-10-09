@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { WhatsappService } from './whatsapp.service';
+import { SimRole, WhatsappService } from './whatsapp.service';
 
 class UpdateWhatsappSettingsDto {
   @IsOptional()
@@ -28,6 +28,10 @@ class CreateAccountDto {
   @IsString()
   @MaxLength(100)
   label?: string;
+
+  @IsOptional()
+  @IsIn(['balance', 'backup'])
+  role?: SimRole;
 }
 
 class UpdateAccountDto {
@@ -39,6 +43,10 @@ class UpdateAccountDto {
   @IsOptional()
   @IsBoolean()
   enabled?: boolean;
+
+  @IsOptional()
+  @IsIn(['balance', 'backup'])
+  role?: SimRole;
 }
 
 class TestMessageDto {
@@ -69,7 +77,7 @@ export class WhatsappController {
 
   @Post('accounts')
   async createAccount(@Request() req: any, @Body() dto: CreateAccountDto) {
-    return { success: true, data: await this.whatsappService.createAccount(req.user.tenantId, dto.label) };
+    return { success: true, data: await this.whatsappService.createAccount(req.user.tenantId, dto.label, dto.role) };
   }
 
   @Put('accounts/:id')

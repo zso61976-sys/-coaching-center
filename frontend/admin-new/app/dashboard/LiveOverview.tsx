@@ -24,6 +24,7 @@ interface Sim {
   id: string;
   label: string;
   enabled: boolean;
+  role: 'balance' | 'backup';
   linked: boolean;
   status: SimStatus;
   phone: string | null;
@@ -134,6 +135,7 @@ export default function LiveOverview() {
   const sims = whatsapp?.accounts || [];
   const activeSims = sims.filter((s) => s.enabled && s.linked);
   const offlineSims = activeSims.filter((s) => s.status !== 'connected');
+  const backupOnline = activeSims.some((s) => s.role === 'backup' && s.status === 'connected');
   const onlineDevices = (devices || []).filter(
     (d) => d.lastSyncAt && Date.now() - new Date(d.lastSyncAt).getTime() < DEVICE_ONLINE_MS,
   );
@@ -173,7 +175,9 @@ export default function LiveOverview() {
         <div className="p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200">
           ⚠️ {offlineSims.map((s) => s.label).join(', ')} {offlineSims.length === 1 ? 'is' : 'are'} offline.
           {activeSims.length > offlineSims.length
-            ? ' Their parents are being sent from the other connected SIMs.'
+            ? backupOnline
+              ? ' The backup SIM is sending their messages.'
+              : ' Their parents are being sent from the other connected SIMs.'
             : ' No WhatsApp messages can be sent right now.'}{' '}
           <Link href="/dashboard/whatsapp" className="underline font-medium">Open WhatsApp</Link>
         </div>
@@ -234,6 +238,11 @@ export default function LiveOverview() {
                         <div className="min-w-0">
                           <p className="font-medium text-gray-800 truncate">
                             {sim.label}
+                            {sim.role === 'backup' && (
+                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-xs font-normal">
+                                Backup
+                              </span>
+                            )}
                             {sim.phone && <span className="font-mono text-gray-500 font-normal"> · +{sim.phone}</span>}
                           </p>
                           <p className={`text-xs ${sim.enabled ? style.text : 'text-gray-500'}`}>
@@ -242,7 +251,7 @@ export default function LiveOverview() {
                         </div>
                       </div>
                       <div className="text-right text-xs text-gray-500 flex-shrink-0">
-                        <p>{sim.assignedParents} parents</p>
+                        <p>{sim.role === 'backup' ? 'covers all SIMs' : `${sim.assignedParents} parents`}</p>
                         <p>{sim.sentToday} sent today</p>
                       </div>
                     </li>
