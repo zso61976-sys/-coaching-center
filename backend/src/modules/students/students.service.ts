@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class StudentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private whatsappService: WhatsappService,
+  ) {}
 
   async create(data: {
     tenantId: string;
@@ -117,6 +121,9 @@ export class StudentsService {
     // Auto-enroll student to biometric devices and push to device
     await this.autoEnrollToBiometricDevices(data.tenantId, student.id, attendanceId, data.fullName, data.deviceIds);
 
+    // WhatsApp welcome to the parents (asks them to save the number)
+    await this.whatsappService.sendWelcome(data.tenantId, student.id);
+
     return this.findById(student.id, data.tenantId);
   }
 
@@ -195,6 +202,8 @@ export class StudentsService {
 
         // Auto-enroll to biometric devices
         await this.autoEnrollToBiometricDevices(tenantId, student.id, attendanceId, s.fullName);
+
+        await this.whatsappService.sendWelcome(tenantId, student.id);
 
         results.created++;
       } catch (error: any) {
@@ -508,6 +517,9 @@ export class StudentsService {
         data.deviceIds,
       );
     }
+
+    // WhatsApp welcome if a parent mobile was added or changed (not sent again otherwise)
+    await this.whatsappService.sendWelcome(tenantId, id);
 
     return this.findById(id, tenantId);
   }

@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Post, Put, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { WhatsappService } from './whatsapp.service';
@@ -11,6 +11,10 @@ class UpdateWhatsappSettingsDto {
   enabled?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  welcomeEnabled?: boolean;
+
+  @IsOptional()
   @IsString()
   countryCode?: string;
 
@@ -19,9 +23,31 @@ class UpdateWhatsappSettingsDto {
   timeZone?: string;
 }
 
+class CreateAccountDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  label?: string;
+}
+
+class UpdateAccountDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  label?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+}
+
 class TestMessageDto {
   @IsString()
   phone: string;
+
+  @IsOptional()
+  @IsUUID()
+  accountId?: string;
 }
 
 @Controller('admin/whatsapp')
@@ -33,24 +59,50 @@ export class WhatsappController {
   @Get('status')
   async getStatus(@Request() req: any) {
     const tenantId = req.user.tenantId;
+    const [accounts, settings] = await Promise.all([
+      this.whatsappService.listAccounts(tenantId),
+      this.whatsappService.getSettings(tenantId),
+    ]);
+    return { success: true, data: { accounts, settings } };
+  }
+
+  @Post('accounts')
+  async createAccount(@Request() req: any, @Body() dto: CreateAccountDto) {
+    return { success: true, data: await this.whatsappService.createAccount(req.user.tenantId, dto.label) };
+  }
+
+  @Put('accounts/:id')
+  async updateAccount(@Request() req: any, @Param('id') id: string, @Body() dto: UpdateAccountDto) {
     return {
       success: true,
-      data: {
-        ...this.whatsappService.getStatus(tenantId),
-        settings: await this.whatsappService.getSettings(tenantId),
-      },
+      data: await this.whatsappService.updateAccount(req.user.tenantId, id, dto),
     };
   }
 
-  @Post('connect')
-  async connect(@Request() req: any) {
-    await this.whatsappService.connect(req.user.tenantId);
-    return { success: true, data: this.whatsappService.getStatus(req.user.tenantId) };
+  @Delete('accounts/:id')
+  async deleteAccount(@Request() req: any, @Param('id') id: string) {
+    return this.whatsappService.deleteAccount(req.user.tenantId, id);
   }
 
-  @Post('logout')
-  async logout(@Request() req: any) {
-    return this.whatsappService.logout(req.user.tenantId);
+  @Post('accounts/:id/connect')
+  async connect(@Request() req: any, @Param('id') id: string) {
+    await this.whatsappService.connect(req.user.tenantId, id);
+    return { success: true };
+  }
+
+  @Post('accounts/:id/logout')
+  async logout(@Request() req: any, @Param('id') id: string) {
+    return this.whatsappService.logout(req.user.tenantId, id);
+  }
+
+  @Post('rebalance')
+  async rebalance(@Request() req: any) {
+    return this.whatsappService.rebalance(req.user.tenantId);
+  }
+
+  @Post('welcome-pending')
+  async sendPendingWelcomes(@Request() req: any) {
+    return this.whatsappService.sendPendingWelcomes(req.user.tenantId);
   }
 
   @Put('settings')
@@ -63,7 +115,7 @@ export class WhatsappController {
 
   @Post('test')
   async sendTest(@Request() req: any, @Body() dto: TestMessageDto) {
-    return this.whatsappService.sendTestMessage(req.user.tenantId, dto.phone);
+    return this.whatsappService.sendTestMessage(req.user.tenantId, dto.phone, dto.accountId);
   }
 
   @Get('logs')

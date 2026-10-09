@@ -3,14 +3,14 @@ import { PrismaService } from '../../common/prisma.service';
 /**
  * Baileys auth state stored in the database instead of files, so the
  * WhatsApp login survives container rebuilds. Mirrors Baileys'
- * useMultiFileAuthState, one row per key.
+ * useMultiFileAuthState, one row per key per WhatsApp account (SIM).
  */
-export async function useDbAuthState(prisma: PrismaService, tenantId: string, baileys: any) {
+export async function useDbAuthState(prisma: PrismaService, accountId: string, baileys: any) {
   const { initAuthCreds, BufferJSON, proto } = baileys;
 
   const readData = async (key: string) => {
     const row = await prisma.whatsappAuth.findUnique({
-      where: { tenantId_key: { tenantId, key } },
+      where: { accountId_key: { accountId, key } },
     });
     return row ? JSON.parse(row.value, BufferJSON.reviver) : null;
   };
@@ -18,14 +18,14 @@ export async function useDbAuthState(prisma: PrismaService, tenantId: string, ba
   const writeData = async (key: string, data: any) => {
     const value = JSON.stringify(data, BufferJSON.replacer);
     await prisma.whatsappAuth.upsert({
-      where: { tenantId_key: { tenantId, key } },
-      create: { tenantId, key, value },
+      where: { accountId_key: { accountId, key } },
+      create: { accountId, key, value },
       update: { value },
     });
   };
 
   const removeData = async (key: string) => {
-    await prisma.whatsappAuth.deleteMany({ where: { tenantId, key } });
+    await prisma.whatsappAuth.deleteMany({ where: { accountId, key } });
   };
 
   const creds = (await readData('creds')) || initAuthCreds();
@@ -64,6 +64,6 @@ export async function useDbAuthState(prisma: PrismaService, tenantId: string, ba
   };
 }
 
-export async function clearDbAuthState(prisma: PrismaService, tenantId: string) {
-  await prisma.whatsappAuth.deleteMany({ where: { tenantId } });
+export async function clearDbAuthState(prisma: PrismaService, accountId: string) {
+  await prisma.whatsappAuth.deleteMany({ where: { accountId } });
 }
