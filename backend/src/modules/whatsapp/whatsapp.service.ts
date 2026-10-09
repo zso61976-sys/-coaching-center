@@ -222,6 +222,22 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** Today's message counts by status, for the live dashboard */
+  async getTodaySummary(tenantId: string) {
+    const settings = await this.getSettings(tenantId);
+    const rows = await this.prisma.whatsappMessageLog.groupBy({
+      by: ['status'],
+      where: { tenantId, createdAt: { gte: this.startOfToday(settings.timeZone) } },
+      _count: { _all: true },
+    });
+    const count = (status: string) => rows.find((r) => r.status === status)?._count._all || 0;
+    return {
+      sent: count('sent'),
+      failed: count('failed'),
+      pending: count('queued') + count('retry'),
+    };
+  }
+
   async createAccount(tenantId: string, label?: string) {
     const count = await this.prisma.whatsappAccount.count({ where: { tenantId } });
     return this.prisma.whatsappAccount.create({

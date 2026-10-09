@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { Suspense, useState, useEffect, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
+import LiveOverview from './LiveOverview';
 import * as XLSX from 'xlsx';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
@@ -181,10 +182,32 @@ const defaultSubjects: Subject[] = [
   { id: '18', code: 'CS-12', name: 'Computer Science', fee: 700, grade: '12th' },
 ];
 
+type DashboardTab = 'overview' | 'students' | 'subjects' | 'teachers' | 'accounts' | 'reports';
+
+const TAB_MODULES: Record<Exclude<DashboardTab, 'overview'>, string> = {
+  students: 'students',
+  subjects: 'students',
+  teachers: 'teachers',
+  accounts: 'accounts',
+  reports: 'reports',
+};
+
 export default function DashboardPage() {
+  return (
+    <Suspense fallback={<div className="text-gray-600">Loading...</div>}>
+      <DashboardContent />
+    </Suspense>
+  );
+}
+
+function DashboardContent() {
   const router = useRouter();
   const { hasModuleAccess, hasRole } = useAuth();
-  const [activeTab, setActiveTab] = useState<'students' | 'subjects' | 'teachers' | 'accounts' | 'reports'>('students');
+  // The section to show comes from the sidebar link (?tab=...); no tab means the live dashboard
+  const searchParams = useSearchParams();
+  const requestedTab = (searchParams.get('tab') || 'overview') as DashboardTab;
+  const activeTab: DashboardTab =
+    requestedTab in TAB_MODULES || requestedTab === 'overview' ? requestedTab : 'overview';
   const [students, setStudents] = useState<Student[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>(defaultSubjects);
   const [attendance, setAttendance] = useState<AttendanceRecord[]>([]);
@@ -1323,12 +1346,6 @@ export default function DashboardPage() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    router.push('/');
-  };
-
   // Helper to format date with day name
   const formatDateWithDay = (dateStr: string) => {
     const date = new Date(dateStr);
@@ -1494,47 +1511,19 @@ export default function DashboardPage() {
     setSuccess('PDF print dialog opened');
   };
 
+  const noAccess = activeTab !== 'overview' && !hasModuleAccess(TAB_MODULES[activeTab]);
+
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-xl font-bold text-gray-800">Coaching Center Admin</h1>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-          >
-            Logout
-          </button>
-        </div>
-      </header>
+    <div>
+      <main>
+        {activeTab === 'overview' && <LiveOverview />}
 
-      {/* Tabs */}
-      <div className="max-w-7xl mx-auto px-4 py-4">
-        <div className="flex gap-2 border-b">
-          {[
-            { id: 'students', label: 'Students', module: 'students' },
-            { id: 'subjects', label: 'Subjects', module: 'students' },
-            { id: 'teachers', label: 'Teachers', module: 'teachers' },
-            { id: 'accounts', label: 'Accounts', module: 'accounts' },
-            { id: 'reports', label: 'Attendance Reports', module: 'reports' },
-          ].filter(tab => hasModuleAccess(tab.module)).map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`px-6 py-3 font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'text-green-600 border-b-2 border-green-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-      </div>
+        {noAccess && (
+          <div className="bg-white rounded-xl shadow-sm p-8 text-center text-gray-600">
+            You do not have access to this section.
+          </div>
+        )}
 
-      <main className="max-w-7xl mx-auto px-4 py-4">
         {error && (
           <div className="bg-red-100 text-red-700 p-4 rounded-lg mb-4">{error}</div>
         )}
@@ -1543,7 +1532,7 @@ export default function DashboardPage() {
         )}
 
         {/* Students Tab */}
-        {activeTab === 'students' && (
+        {activeTab === 'students' && !noAccess && (
           <div>
             <div className="mb-6 flex flex-wrap gap-3">
               <button
@@ -2156,7 +2145,7 @@ export default function DashboardPage() {
         )}
 
         {/* Subjects Tab */}
-        {activeTab === 'subjects' && (
+        {activeTab === 'subjects' && !noAccess && (
           <div>
             <div className="mb-6">
               <button
@@ -2293,7 +2282,7 @@ export default function DashboardPage() {
         )}
 
         {/* Teachers Tab */}
-        {activeTab === 'teachers' && (
+        {activeTab === 'teachers' && !noAccess && (
           <div>
             {/* Teacher Management */}
             <div className="bg-white rounded-xl shadow mb-6">
@@ -2763,7 +2752,7 @@ export default function DashboardPage() {
         )}
 
         {/* Accounts Tab */}
-        {activeTab === 'accounts' && (
+        {activeTab === 'accounts' && !noAccess && (
           <div>
             {/* Sub-tabs */}
             <div className="flex gap-2 mb-6">
@@ -3528,7 +3517,7 @@ export default function DashboardPage() {
         )}
 
         {/* Reports Tab */}
-        {activeTab === 'reports' && (
+        {activeTab === 'reports' && !noAccess && (
           <div>
             {/* Date Range Filter */}
             <div className="bg-white p-4 rounded-xl shadow mb-6">

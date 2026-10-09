@@ -59,11 +59,12 @@ export class WhatsappController {
   @Get('status')
   async getStatus(@Request() req: any) {
     const tenantId = req.user.tenantId;
-    const [accounts, settings] = await Promise.all([
+    const [accounts, settings, today] = await Promise.all([
       this.whatsappService.listAccounts(tenantId),
       this.whatsappService.getSettings(tenantId),
+      this.whatsappService.getTodaySummary(tenantId),
     ]);
-    return { success: true, data: { accounts, settings } };
+    return { success: true, data: { accounts, settings, today } };
   }
 
   @Post('accounts')
