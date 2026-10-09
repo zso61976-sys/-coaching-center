@@ -47,6 +47,71 @@ interface MessageLog {
   createdAt: string;
 }
 
+interface StudentRow {
+  id: string;
+  code: string;
+  name: string;
+  grade: string | null;
+  biometricId: string | null;
+  checkIn: string | null;
+  checkOut: string | null;
+  state: 'inside' | 'left' | 'absent';
+}
+
+type AttendanceFilter = 'all' | 'inside' | 'left' | 'absent';
+
+const ATTENDANCE_STATE: Record<StudentRow['state'], { label: string; className: string }> = {
+  inside: { label: 'Inside', className: 'bg-green-100 text-green-800' },
+  left: { label: 'Left', className: 'bg-blue-100 text-blue-800' },
+  absent: { label: 'Not arrived', className: 'bg-gray-100 text-gray-600' },
+};
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function formatTime(date: string | null) {
+  return date ? new Date(date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
+}
+
+/** One row per active student, combined with today's check-ins (fingerprint and kiosk) */
+function buildStudentRows(students: any[], sessions: any[]): StudentRow[] {
+  const byStudent = new Map<string, any[]>();
+  for (const s of sessions) {
+    const id = s.student?.student_id;
+    if (!id) continue;
+    if (!byStudent.has(id)) byStudent.set(id, []);
+    byStudent.get(id)!.push(s);
+  }
+
+  return students
+    .filter((s) => s.status === 'active')
+    .map((s) => {
+      const list = (byStudent.get(s.student_id) || []).sort(
+        (a, b) => new Date(a.checkin_time).getTime() - new Date(b.checkin_time).getTime(),
+      );
+      const first = list[0];
+      const latest = list[list.length - 1];
+      const state: StudentRow['state'] = !latest ? 'absent' : latest.checkout_time ? 'left' : 'inside';
+      return {
+        id: s.student_id,
+        code: s.student_code,
+        name: s.full_name,
+        grade: s.grade || null,
+        biometricId: s.biometric_id || null,
+        checkIn: first?.checkin_time || null,
+        checkOut: latest?.checkout_time || null,
+        state,
+      };
+    })
+    .sort((a, b) => {
+      const order = { inside: 0, left: 1, absent: 2 };
+      if (order[a.state] !== order[b.state]) return order[a.state] - order[b.state];
+      return a.name.localeCompare(b.name);
+    });
+}
+
 interface Device {
   id: string;
   name: string;
@@ -90,11 +155,15 @@ export default function LiveOverview() {
   const { token, hasRole, hasModuleAccess } = useAuth();
   const isAdmin = hasRole('admin');
   const canSeeDevices = hasModuleAccess('biometric');
+  const canSeeStudents = hasModuleAccess('students');
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(null);
   const [logs, setLogs] = useState<MessageLog[]>([]);
   const [devices, setDevices] = useState<Device[] | null>(null);
+  const [studentRows, setStudentRows] = useState<StudentRow[] | null>(null);
+  const [attendanceFilter, setAttendanceFilter] = useState<AttendanceFilter>('all');
+  const [search, setSearch] = useState('');
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -116,15 +185,22 @@ export default function LiveOverview() {
       isAdmin ? get('/admin/whatsapp/status') : Promise.resolve(null),
       isAdmin ? get('/admin/whatsapp/logs') : Promise.resolve([]),
       canSeeDevices ? get('/admin/biometric/devices') : Promise.resolve(null),
+      canSeeStudents ? get('/admin/students') : Promise.resolve(null),
+      canSeeStudents
+        ? get(`/admin/attendance/report?date=${todayKey()}&limit=1000`)
+        : Promise.resolve(null),
     ]);
-    const [s, w, l, d] = results;
+    const [s, w, l, d, st, att] = results;
+    if (st.status === 'fulfilled' && att.status === 'fulfilled' && st.value && att.value) {
+      setStudentRows(buildStudentRows(st.value.students || [], att.value.records || []));
+    }
     if (s.status === 'fulfilled') setStats(s.value);
     if (w.status === 'fulfilled') setWhatsapp(w.value);
     if (l.status === 'fulfilled') setLogs((l.value || []).slice(0, 8));
     if (d.status === 'fulfilled') setDevices(d.value);
     setFailed(results.every((r) => r.status === 'rejected'));
     setUpdatedAt(new Date());
-  }, [token, get, isAdmin, canSeeDevices]);
+  }, [token, get, isAdmin, canSeeDevices, canSeeStudents]);
 
   useEffect(() => {
     refresh();
@@ -136,6 +212,22 @@ export default function LiveOverview() {
   const activeSims = sims.filter((s) => s.enabled && s.linked);
   const offlineSims = activeSims.filter((s) => s.status !== 'connected');
   const backupOnline = activeSims.some((s) => s.role === 'backup' && s.status === 'connected');
+  const attendanceCounts = {
+    all: studentRows?.length || 0,
+    inside: studentRows?.filter((r) => r.state === 'inside').length || 0,
+    left: studentRows?.filter((r) => r.state === 'left').length || 0,
+    absent: studentRows?.filter((r) => r.state === 'absent').length || 0,
+  };
+  const searchLower = search.trim().toLowerCase();
+  const visibleRows = (studentRows || []).filter(
+    (r) =>
+      (attendanceFilter === 'all' || r.state === attendanceFilter) &&
+      (!searchLower ||
+        r.name.toLowerCase().includes(searchLower) ||
+        r.code.toLowerCase().includes(searchLower) ||
+        (r.biometricId || '').toLowerCase().includes(searchLower)),
+  );
+
   const onlineDevices = (devices || []).filter(
     (d) => d.lastSyncAt && Date.now() - new Date(d.lastSyncAt).getTime() < DEVICE_ONLINE_MS,
   );
@@ -211,6 +303,93 @@ export default function LiveOverview() {
           value={devices ? `${onlineDevices.length} / ${devices.length}` : '–'}
         />
       </div>
+
+      {/* Today's attendance per student */}
+      {canSeeStudents && (
+        <div className="bg-white rounded-xl shadow-sm">
+          <div className="p-4 sm:p-6 border-b border-gray-200 flex flex-wrap gap-3 justify-between items-center">
+            <h3 className="text-lg font-semibold text-gray-800">Today&apos;s attendance</h3>
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name or ID"
+              className="w-full sm:w-56 px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+          <div className="px-4 sm:px-6 pt-4 flex flex-wrap gap-2">
+            {([
+              ['all', 'All'],
+              ['inside', 'Inside'],
+              ['left', 'Left'],
+              ['absent', 'Not arrived'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setAttendanceFilter(key)}
+                className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                  attendanceFilter === key
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {label} ({attendanceCounts[key]})
+              </button>
+            ))}
+          </div>
+          <div className="overflow-x-auto mt-3">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  {['ID', 'Name', 'Class', 'Status', 'Check-in', 'Check-out'].map((h) => (
+                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {visibleRows.map((row) => {
+                  const state = ATTENDANCE_STATE[row.state];
+                  return (
+                    <tr key={row.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-2.5 font-mono text-gray-700 whitespace-nowrap">
+                        {row.code}
+                        {row.biometricId && row.biometricId !== row.code && (
+                          <span className="block text-xs text-gray-400">Device ID {row.biometricId}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-900">{row.name}</td>
+                      <td className="px-4 py-2.5 text-gray-600">{row.grade || '—'}</td>
+                      <td className="px-4 py-2.5">
+                        <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${state.className}`}>
+                          {state.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{formatTime(row.checkIn)}</td>
+                      <td className="px-4 py-2.5 text-gray-700 whitespace-nowrap">{formatTime(row.checkOut)}</td>
+                    </tr>
+                  );
+                })}
+                {studentRows && visibleRows.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                      No students match.
+                    </td>
+                  </tr>
+                )}
+                {!studentRows && (
+                  <tr>
+                    <td colSpan={6} className="px-4 py-8 text-center text-gray-500">
+                      Loading...
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         {/* WhatsApp SIMs */}
