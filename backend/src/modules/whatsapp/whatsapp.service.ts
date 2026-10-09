@@ -35,6 +35,39 @@ const DEFAULT_SETTINGS: WhatsappSettings = {
   timeZone: 'Asia/Dubai',
 };
 
+/** Small in-memory TTL cache matching Baileys' CacheStore interface */
+class MemoryCache {
+  private store = new Map<string, { value: any; expires: number }>();
+
+  constructor(private ttlMs: number, private maxEntries = 5000) {}
+
+  get<T>(key: string): T | undefined {
+    const entry = this.store.get(key);
+    if (!entry) return undefined;
+    if (entry.expires < Date.now()) {
+      this.store.delete(key);
+      return undefined;
+    }
+    return entry.value;
+  }
+
+  set<T>(key: string, value: T) {
+    if (this.store.size >= this.maxEntries) {
+      const oldest = this.store.keys().next().value;
+      if (oldest !== undefined) this.store.delete(oldest);
+    }
+    this.store.set(key, { value, expires: Date.now() + this.ttlMs });
+  }
+
+  del(key: string) {
+    this.store.delete(key);
+  }
+
+  flushAll() {
+    this.store.clear();
+  }
+}
+
 // Baileys is ESM-only; load it with a real dynamic import from this CommonJS build
 const importEsm = new Function('specifier', 'return import(specifier)') as (
   specifier: string,
@@ -66,6 +99,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WhatsappService.name);
   private sessions = new Map<string, Session>();
   private baileys: any;
+  // Retry bookkeeping and copies of sent messages, so a message can be re-sent when the
+  // recipient's phone could not decrypt it (otherwise it shows "Waiting for this message")
+  private msgRetryCounterCache = new MemoryCache(60 * 60 * 1000);
+  private sentMessages = new MemoryCache(24 * 60 * 60 * 1000);
 
   constructor(
     private prisma: PrismaService,
@@ -133,13 +170,19 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       .fetchLatestBaileysVersion()
       .catch(() => ({ version: undefined }));
 
+    const logger = pino({ level: 'error' });
     const sock = baileys.default({
       version,
-      auth: state,
-      logger: pino({ level: 'silent' }),
+      auth: {
+        creds: state.creds,
+        keys: baileys.makeCacheableSignalKeyStore(state.keys, logger),
+      },
+      logger,
       browser: baileys.Browsers.ubuntu('Coaching Center'),
       markOnlineOnConnect: false,
       syncFullHistory: false,
+      msgRetryCounterCache: this.msgRetryCounterCache,
+      getMessage: (key: any) => this.getSentMessage(tenantId, key?.id),
     });
     session.sock = sock;
 
@@ -222,7 +265,27 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
 
     const sent = await session.sock.sendMessage(result.jid, { text });
-    return sent?.key?.id || null;
+    const messageId: string | null = sent?.key?.id || null;
+    if (messageId && sent?.message) {
+      this.sentMessages.set(`${tenantId}:${messageId}`, sent.message);
+    }
+    return messageId;
+  }
+
+  /** Used by Baileys to re-send a message the recipient asked for again */
+  private async getSentMessage(tenantId: string, messageId?: string | null) {
+    if (!messageId) return undefined;
+
+    const cached = this.sentMessages.get<any>(`${tenantId}:${messageId}`);
+    if (cached) return cached;
+
+    const log = await this.prisma.whatsappMessageLog.findFirst({
+      where: { tenantId, waMessageId: messageId },
+    });
+    if (!log) return undefined;
+
+    const baileys = await this.loadBaileys();
+    return baileys.proto.Message.fromObject({ conversation: log.messageText });
   }
 
   async getSettings(tenantId: string): Promise<WhatsappSettings> {

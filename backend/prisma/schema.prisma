@@ -426,10 +426,12 @@ model WhatsappMessageLog {
   messageText  String    @map("message_text") @db.Text
   status       String    @default("queued") @db.VarChar(20)
   errorText    String?   @map("error_text") @db.Text
+  waMessageId  String?   @map("wa_message_id") @db.VarChar(100)
   sentAt       DateTime? @map("sent_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt])
   @@index([status])
+  @@index([waMessageId])
   @@map("whatsapp_message_logs")
 }

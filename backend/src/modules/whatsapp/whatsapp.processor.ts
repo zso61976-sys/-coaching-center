@@ -17,10 +17,10 @@ export class WhatsappProcessor extends WorkerHost {
     const { logId, tenantId, phone, text } = job.data;
 
     try {
-      await this.whatsappService.sendText(tenantId, phone, text);
+      const waMessageId = await this.whatsappService.sendText(tenantId, phone, text);
       await this.prisma.whatsappMessageLog.update({
         where: { id: logId },
-        data: { status: 'sent', sentAt: new Date(), errorText: null },
+        data: { status: 'sent', sentAt: new Date(), errorText: null, waMessageId },
       });
     } catch (error: any) {
       const message = error?.message || 'Unknown error';
