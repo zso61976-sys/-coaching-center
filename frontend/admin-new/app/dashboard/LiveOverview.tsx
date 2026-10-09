@@ -72,6 +72,7 @@ interface ActivityEvent {
 }
 
 type AttendanceFilter = 'all' | 'inside' | 'left' | 'absent';
+type ActivityFilter = 'all' | 'in' | 'out';
 
 const SIM_STATUS: Record<SimStatus, { label: string; dot: string; text: string }> = {
   connected: { label: 'Connected', dot: 'bg-green-500', text: 'text-green-700' },
@@ -152,9 +153,7 @@ function buildActivity(sessions: Session[]): ActivityEvent[] {
       events.push({ key: `${s.attendance_id}-out`, type: 'out', time: s.checkout_time, ...base });
     }
   }
-  return events
-    .sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-    .slice(0, FEED_SIZE);
+  return events.sort((a, b) => new Date(b.time).getTime() - new Date(a.time).getTime());
 }
 
 function StatCard({
@@ -195,6 +194,7 @@ export default function LiveOverview() {
   const [devices, setDevices] = useState<Device[] | null>(null);
   const [studentRows, setStudentRows] = useState<StudentRow[] | null>(null);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
   const [attendanceFilter, setAttendanceFilter] = useState<AttendanceFilter>('all');
   const [search, setSearch] = useState('');
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -268,6 +268,15 @@ export default function LiveOverview() {
     (d) => d.lastSyncAt && Date.now() - new Date(d.lastSyncAt).getTime() < DEVICE_ONLINE_MS,
   );
 
+  const activityCounts = {
+    all: activity.length,
+    in: activity.filter((e) => e.type === 'in').length,
+    out: activity.filter((e) => e.type === 'out').length,
+  };
+  const visibleActivity = activity
+    .filter((e) => activityFilter === 'all' || e.type === activityFilter)
+    .slice(0, FEED_SIZE);
+
   const toggleFilter = (filter: AttendanceFilter) =>
     setAttendanceFilter((current) => (current === filter ? 'all' : filter));
 
@@ -295,13 +304,44 @@ export default function LiveOverview() {
         </div>
       </div>
 
-      {/* Alerts */}
-      {isAdmin && whatsapp && !whatsapp.settings.enabled && (
-        <div className="p-3 rounded-lg text-sm bg-yellow-50 text-yellow-800 border border-yellow-200">
-          WhatsApp check-in / check-out messages to parents are turned off.{' '}
-          <Link href="/dashboard/whatsapp" className="underline font-medium">Turn them on</Link>
+      {/* WhatsApp status */}
+      {isAdmin && whatsapp && (
+        <div className="bg-white rounded-xl shadow-sm px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="text-sm font-semibold text-gray-800">💬 WhatsApp</span>
+          {sims.length === 0 ? (
+            <span className="text-sm text-gray-500">No number linked</span>
+          ) : (
+            sims.map((sim) => {
+              const style = SIM_STATUS[sim.status];
+              return (
+                <span
+                  key={sim.id}
+                  className="flex items-center gap-2 px-3 py-1 rounded-full bg-gray-50 border border-gray-200 text-sm"
+                  title={sim.role === 'backup' ? 'Backup SIM' : `${sim.assignedParents} parents`}
+                >
+                  <span className={`h-2.5 w-2.5 rounded-full ${sim.enabled ? style.dot : 'bg-gray-300'}`} />
+                  <span className="font-medium text-gray-800">{sim.label}</span>
+                  {sim.role === 'backup' && (
+                    <span className="px-1.5 rounded bg-indigo-100 text-indigo-700 text-xs">Backup</span>
+                  )}
+                  {sim.phone && <span className="font-mono text-gray-500 text-xs">+{sim.phone}</span>}
+                  <span className={`text-xs ${sim.enabled ? style.text : 'text-gray-500'}`}>
+                    {sim.enabled ? style.label : 'Paused'}
+                  </span>
+                </span>
+              );
+            })
+          )}
+          {!whatsapp.settings.enabled && (
+            <span className="text-xs px-2 py-1 rounded bg-yellow-100 text-yellow-800">Messages to parents are off</span>
+          )}
+          <Link href="/dashboard/whatsapp" className="ml-auto text-sm text-indigo-600 hover:text-indigo-800">
+            Manage →
+          </Link>
         </div>
       )}
+
+      {/* Alerts */}
       {offlineSims.length > 0 && (
         <div className="p-3 rounded-lg text-sm bg-red-50 text-red-700 border border-red-200">
           ⚠️ WhatsApp {offlineSims.map((s) => s.label).join(', ')} {offlineSims.length === 1 ? 'is' : 'are'} offline.
@@ -364,15 +404,40 @@ export default function LiveOverview() {
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
           {/* Live IN / OUT feed */}
           <div className="bg-white rounded-xl shadow-sm">
-            <div className="p-4 sm:p-6 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-800">Live IN / OUT</h3>
-              <p className="text-xs text-gray-500">Latest check-ins and check-outs today</p>
+            <div className="p-4 sm:p-6 border-b border-gray-200 space-y-3">
+              <div>
+                <h3 className="text-lg font-semibold text-gray-800">Live IN / OUT</h3>
+                <p className="text-xs text-gray-500">Latest check-ins and check-outs today</p>
+              </div>
+              <div className="flex gap-2">
+                {([
+                  ['all', 'All', 'bg-green-600 text-white'],
+                  ['in', 'IN', 'bg-green-600 text-white'],
+                  ['out', 'OUT', 'bg-blue-600 text-white'],
+                ] as const).map(([key, label, activeClass]) => (
+                  <button
+                    key={key}
+                    onClick={() => setActivityFilter(key)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium transition-colors ${
+                      activityFilter === key ? activeClass : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                  >
+                    {label} ({activityCounts[key]})
+                  </button>
+                ))}
+              </div>
             </div>
-            {activity.length === 0 ? (
-              <p className="p-6 text-sm text-gray-500">No check-ins yet today.</p>
+            {visibleActivity.length === 0 ? (
+              <p className="p-6 text-sm text-gray-500">
+                {activity.length === 0
+                  ? 'No check-ins yet today.'
+                  : activityFilter === 'in'
+                    ? 'No check-ins yet today.'
+                    : 'No check-outs yet today.'}
+              </p>
             ) : (
               <ul className="divide-y divide-gray-100">
-                {activity.map((event) => {
+                {visibleActivity.map((event) => {
                   const isNew = Date.now() - new Date(event.time).getTime() < NEW_EVENT_MS;
                   return (
                     <li
@@ -491,54 +556,6 @@ export default function LiveOverview() {
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        {/* WhatsApp connection status (no message details here) */}
-        {isAdmin && (
-          <div className="bg-white rounded-xl shadow-sm p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold text-gray-800">WhatsApp status</h3>
-              <Link href="/dashboard/whatsapp" className="text-sm text-indigo-600 hover:text-indigo-800">
-                Manage →
-              </Link>
-            </div>
-            {sims.length === 0 ? (
-              <p className="text-sm text-gray-500">
-                No WhatsApp number linked yet.{' '}
-                <Link href="/dashboard/whatsapp" className="text-indigo-600 underline">Add one</Link>
-              </p>
-            ) : (
-              <ul className="divide-y divide-gray-100">
-                {sims.map((sim) => {
-                  const style = SIM_STATUS[sim.status];
-                  return (
-                    <li key={sim.id} className="py-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <span className={`h-3 w-3 rounded-full flex-shrink-0 ${sim.enabled ? style.dot : 'bg-gray-300'}`} />
-                        <div className="min-w-0">
-                          <p className="font-medium text-gray-800 truncate">
-                            {sim.label}
-                            {sim.role === 'backup' && (
-                              <span className="ml-1.5 px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 text-xs font-normal">
-                                Backup
-                              </span>
-                            )}
-                            {sim.phone && <span className="font-mono text-gray-500 font-normal"> · +{sim.phone}</span>}
-                          </p>
-                          <p className={`text-xs ${sim.enabled ? style.text : 'text-gray-500'}`}>
-                            {sim.enabled ? style.label : 'Paused'}
-                          </p>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-500 flex-shrink-0">
-                        {sim.role === 'backup' ? 'covers all SIMs' : `${sim.assignedParents} parents`}
-                      </p>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        )}
-
         {/* Biometric devices */}
         {canSeeDevices && (
           <div className="bg-white rounded-xl shadow-sm p-6">
