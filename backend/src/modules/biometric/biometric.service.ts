@@ -265,6 +265,7 @@ export class BiometricService {
         student: {
           include: { branch: true },
         },
+        teacher: true,
       },
     });
 
@@ -285,6 +286,11 @@ export class BiometricService {
       });
 
       return { success: false, message: 'User not enrolled' };
+    }
+
+    // Teachers: record the punch (alternating IN/OUT per day) for teacher attendance
+    if (!enrollment.student && enrollment.teacher) {
+      return this.handleTeacherPunch(device, enrollment.teacher, data);
     }
 
     const student = enrollment.student;
@@ -495,6 +501,75 @@ export class BiometricService {
       '15': 'face',
     };
     return methods[verify || '1'] || 'fingerprint';
+  }
+
+  /** Teacher punch: stored as a punch log; the first punch of the day is IN, then OUT, IN, ... */
+  private async handleTeacherPunch(device: any, teacher: any, data: PunchDataDto) {
+    const punchTime = this.parseAttTime(data.AttTime, device.timezoneOffset);
+    const verifyMethod = this.getVerifyMethod(data.Verify);
+
+    if (teacher.status !== 'active') {
+      await this.prisma.biometricPunchLog.create({
+        data: {
+          deviceId: device.id,
+          deviceUserId: data.PIN,
+          punchTime,
+          punchType: 'unknown',
+          verifyMethod,
+          rawData: data as any,
+          processed: false,
+          errorMessage: 'Teacher inactive',
+        },
+      });
+      return { success: false, message: 'Teacher inactive' };
+    }
+
+    if (await this.checkDuplicatePunch(device.id, data.PIN, punchTime)) {
+      this.logger.log(`Duplicate teacher punch ignored: ${data.PIN} at ${data.AttTime}`);
+      return { success: true, message: 'OK (duplicate)' };
+    }
+
+    const punchType = await this.determineTeacherPunchType(teacher.id, punchTime);
+    await this.prisma.biometricPunchLog.create({
+      data: {
+        deviceId: device.id,
+        deviceUserId: data.PIN,
+        punchTime,
+        punchType,
+        verifyMethod,
+        rawData: data as any,
+        processed: true,
+      },
+    });
+    await this.prisma.biometricDevice.update({
+      where: { id: device.id },
+      data: { lastSyncAt: new Date() },
+    });
+
+    this.logger.log(`Teacher ${teacher.id} punched ${punchType.toUpperCase()}`);
+    return { success: true, message: 'OK' };
+  }
+
+  private async determineTeacherPunchType(teacherId: string, punchTime: Date): Promise<'in' | 'out'> {
+    const enrollments = await this.prisma.biometricEnrollment.findMany({
+      where: { teacherId },
+      select: { deviceId: true, deviceUserId: true },
+    });
+    if (enrollments.length === 0) return 'in';
+
+    const dayStart = new Date(punchTime);
+    dayStart.setHours(0, 0, 0, 0);
+
+    const previous = await this.prisma.biometricPunchLog.findFirst({
+      where: {
+        OR: enrollments.map((e) => ({ deviceId: e.deviceId, deviceUserId: e.deviceUserId })),
+        punchTime: { gte: dayStart, lt: punchTime },
+        punchType: { in: ['in', 'out'] },
+      },
+      orderBy: { punchTime: 'desc' },
+    });
+
+    return previous?.punchType === 'in' ? 'out' : 'in';
   }
 
   private async checkDuplicatePunch(deviceId: string, deviceUserId: string, punchTime: Date): Promise<boolean> {

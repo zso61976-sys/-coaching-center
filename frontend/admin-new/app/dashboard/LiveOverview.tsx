@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useAuth } from '../contexts/AuthContext';
 import ClassAttendanceChart, { ClassAttendance } from './ClassAttendanceChart';
+import TeacherStatusCard, { TeacherStatus } from './TeacherStatusCard';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api`
@@ -210,6 +211,7 @@ export default function LiveOverview() {
   const isAdmin = hasRole('admin');
   const canSeeDevices = hasModuleAccess('biometric');
   const canSeeStudents = hasModuleAccess('students');
+  const canSeeTeachers = hasModuleAccess('teachers');
 
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(null);
@@ -218,6 +220,7 @@ export default function LiveOverview() {
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
   const [classData, setClassData] = useState<ClassAttendance[] | null>(null);
+  const [teachers, setTeachers] = useState<TeacherStatus[] | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [failed, setFailed] = useState(false);
 
@@ -245,8 +248,12 @@ export default function LiveOverview() {
       canSeeStudents
         ? get(`/admin/attendance/report?date=${dateKey(1)}&limit=1000`)
         : Promise.resolve(null),
+      canSeeTeachers
+        ? get(`/admin/attendance/teacher-status?date=${dateKey(0)}`)
+        : Promise.resolve(null),
     ]);
-    const [s, w, d, st, att, attYesterday] = results;
+    const [s, w, d, st, att, attYesterday, tch] = results;
+    if (tch.status === 'fulfilled' && tch.value) setTeachers(tch.value.teachers || []);
     if (s.status === 'fulfilled') setStats(s.value);
     if (w.status === 'fulfilled') setWhatsapp(w.value);
     if (d.status === 'fulfilled') setDevices(d.value);
@@ -263,7 +270,7 @@ export default function LiveOverview() {
     }
     setFailed(results.every((r) => r.status === 'rejected'));
     setUpdatedAt(new Date());
-  }, [token, get, isAdmin, canSeeDevices, canSeeStudents]);
+  }, [token, get, isAdmin, canSeeDevices, canSeeStudents, canSeeTeachers]);
 
   useEffect(() => {
     refresh();
@@ -477,6 +484,9 @@ export default function LiveOverview() {
       )}
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {/* Teachers: present / left / not arrived */}
+        {canSeeTeachers && teachers && <TeacherStatusCard teachers={teachers} />}
+
         {/* Biometric devices */}
         {canSeeDevices && (
           <div className="bg-white rounded-xl shadow-sm p-6">

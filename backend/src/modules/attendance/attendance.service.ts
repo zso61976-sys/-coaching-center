@@ -8,6 +8,69 @@ export class AttendanceService {
     private prisma: PrismaService,
   ) {}
 
+  /** Each active teacher's state for the day: inside, left or not arrived, from their punches */
+  async getTeacherStatus(tenantId: string, from: Date, to: Date) {
+    const teachers = await this.prisma.teacher.findMany({
+      where: { tenantId, status: 'active' },
+      orderBy: { fullName: 'asc' },
+      select: { id: true, teacherCode: true, fullName: true },
+    });
+
+    const enrollments = await this.prisma.biometricEnrollment.findMany({
+      where: { teacherId: { in: teachers.map((t) => t.id) } },
+      select: { teacherId: true, deviceId: true, deviceUserId: true },
+    });
+    const teacherByPin = new Map(enrollments.map((e) => [`${e.deviceId}|${e.deviceUserId}`, e.teacherId]));
+
+    const logs = enrollments.length
+      ? await this.prisma.biometricPunchLog.findMany({
+          where: {
+            OR: enrollments.map((e) => ({ deviceId: e.deviceId, deviceUserId: e.deviceUserId })),
+            punchTime: { gte: from, lte: to },
+            punchType: { in: ['in', 'out'] },
+          },
+          orderBy: { punchTime: 'asc' },
+        })
+      : [];
+
+    const punchesByTeacher = new Map<string, typeof logs>();
+    for (const log of logs) {
+      const teacherId = teacherByPin.get(`${log.deviceId}|${log.deviceUserId}`);
+      if (!teacherId) continue;
+      if (!punchesByTeacher.has(teacherId)) punchesByTeacher.set(teacherId, []);
+      punchesByTeacher.get(teacherId)!.push(log);
+    }
+
+    const rows = teachers.map((t) => {
+      const punches = punchesByTeacher.get(t.id) || [];
+      const firstIn = punches.find((p) => p.punchType === 'in');
+      const last = punches[punches.length - 1];
+      const state = !last ? 'absent' : last.punchType === 'out' ? 'left' : 'inside';
+      return {
+        teacher_id: t.id,
+        teacher_code: t.teacherCode,
+        full_name: t.fullName,
+        state,
+        first_in: firstIn?.punchTime || null,
+        last_out: last?.punchType === 'out' ? last.punchTime : null,
+        punches: punches.length,
+      };
+    });
+
+    return {
+      success: true,
+      data: {
+        teachers: rows,
+        summary: {
+          total: rows.length,
+          inside: rows.filter((r) => r.state === 'inside').length,
+          left: rows.filter((r) => r.state === 'left').length,
+          absent: rows.filter((r) => r.state === 'absent').length,
+        },
+      },
+    };
+  }
+
   async getReport(tenantId: string, options: {
     from?: Date;
     to?: Date;

@@ -7,6 +7,15 @@ import { AttendanceService } from './attendance.service';
 export class AttendanceController {
   constructor(private attendanceService: AttendanceService) {}
 
+  @Get('teacher-status')
+  async getTeacherStatus(@Query('date') date: string, @Request() req: any) {
+    const from = date ? new Date(date) : new Date();
+    from.setHours(0, 0, 0, 0);
+    const to = new Date(from);
+    to.setHours(23, 59, 59, 999);
+    return this.attendanceService.getTeacherStatus(req.user.tenantId, from, to);
+  }
+
   @Get('report')
   async getReport(
     @Query('date') date: string,
