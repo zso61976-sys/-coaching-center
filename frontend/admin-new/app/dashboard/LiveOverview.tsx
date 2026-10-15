@@ -203,6 +203,22 @@ function StatCard({ label, value, accent }: { label: string; value: string | num
   );
 }
 
+interface Snapshot {
+  token: string;
+  stats: DashboardStats | null;
+  whatsapp: WhatsappStatus | null;
+  devices: Device[] | null;
+  studentRows: StudentRow[] | null;
+  activity: ActivityEvent[];
+  classData: ClassAttendance[] | null;
+  teachers: TeacherStatus[] | null;
+  updatedAt: Date | null;
+}
+
+// Last loaded data, kept while the user visits other tabs so coming back shows it
+// at once (then refreshes) instead of an empty page while the requests run
+let lastSnapshot: Snapshot | null = null;
+
 export default function LiveOverview() {
   const { token, hasRole, hasModuleAccess } = useAuth();
   const isAdmin = hasRole('admin');
@@ -210,15 +226,16 @@ export default function LiveOverview() {
   const canSeeStudents = hasModuleAccess('students');
   const canSeeTeachers = hasModuleAccess('teachers');
 
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(null);
-  const [devices, setDevices] = useState<Device[] | null>(null);
-  const [studentRows, setStudentRows] = useState<StudentRow[] | null>(null);
-  const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const cached = lastSnapshot && lastSnapshot.token === token ? lastSnapshot : null;
+  const [stats, setStats] = useState<DashboardStats | null>(cached?.stats ?? null);
+  const [whatsapp, setWhatsapp] = useState<WhatsappStatus | null>(cached?.whatsapp ?? null);
+  const [devices, setDevices] = useState<Device[] | null>(cached?.devices ?? null);
+  const [studentRows, setStudentRows] = useState<StudentRow[] | null>(cached?.studentRows ?? null);
+  const [activity, setActivity] = useState<ActivityEvent[]>(cached?.activity ?? []);
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');
-  const [classData, setClassData] = useState<ClassAttendance[] | null>(null);
-  const [teachers, setTeachers] = useState<TeacherStatus[] | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const [classData, setClassData] = useState<ClassAttendance[] | null>(cached?.classData ?? null);
+  const [teachers, setTeachers] = useState<TeacherStatus[] | null>(cached?.teachers ?? null);
+  const [updatedAt, setUpdatedAt] = useState<Date | null>(cached?.updatedAt ?? null);
   const [failed, setFailed] = useState(false);
 
   const get = useCallback(
@@ -268,6 +285,12 @@ export default function LiveOverview() {
     setFailed(results.every((r) => r.status === 'rejected'));
     setUpdatedAt(new Date());
   }, [token, get, isAdmin, canSeeDevices, canSeeStudents, canSeeTeachers]);
+
+  useEffect(() => {
+    if (token) {
+      lastSnapshot = { token, stats, whatsapp, devices, studentRows, activity, classData, teachers, updatedAt };
+    }
+  }, [token, stats, whatsapp, devices, studentRows, activity, classData, teachers, updatedAt]);
 
   useEffect(() => {
     refresh();

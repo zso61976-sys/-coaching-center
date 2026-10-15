@@ -80,7 +80,17 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
                 <Link
                   key={item.href}
                   href={item.href}
-                  onClick={onNavigate}
+                  onClick={(e) => {
+                    // Tabs of /dashboard are one page: switch them in the browser instead of
+                    // asking the server again (each round trip can stall on a slow connection)
+                    const sameDashboardPage =
+                      pathname === '/dashboard' && /^\/dashboard(\?|$)/.test(item.href);
+                    if (sameDashboardPage && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+                      e.preventDefault();
+                      window.history.pushState(null, '', item.href);
+                    }
+                    onNavigate();
+                  }}
                   className={`flex items-center gap-3 mx-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
                     active ? 'bg-white text-green-800 shadow-sm' : 'text-green-50 hover:bg-green-600'
                   }`}
