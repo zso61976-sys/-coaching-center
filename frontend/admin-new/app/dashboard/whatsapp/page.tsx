@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import BroadcastCard from './BroadcastCard';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api`
@@ -64,6 +65,7 @@ const MESSAGE_TYPES: Record<string, string> = {
   checkin: 'Check-in',
   checkout: 'Check-out',
   welcome: 'Welcome',
+  broadcast: 'Broadcast',
 };
 
 export default function WhatsappPage() {
@@ -586,6 +588,8 @@ export default function WhatsappPage() {
         </div>
       </div>
 
+      <BroadcastCard request={request} enabled={settingsForm.enabled} connectedCount={connectedCount} />
+
       {/* Message log */}
       <div className="bg-white rounded-xl shadow-sm">
         <div className="p-6 border-b border-gray-200 flex justify-between items-center">
@@ -625,12 +629,14 @@ export default function WhatsappPage() {
                           ? 'bg-green-100 text-green-800'
                           : log.status === 'failed'
                             ? 'bg-red-100 text-red-800'
-                            : 'bg-yellow-100 text-yellow-800'
+                            : log.status === 'cancelled'
+                              ? 'bg-gray-100 text-gray-700'
+                              : 'bg-yellow-100 text-yellow-800'
                       }`}
                     >
                       {log.status}
                     </span>
-                    {log.errorText && log.status !== 'sent' && (
+                    {log.errorText && log.status !== 'sent' && log.status !== 'cancelled' && (
                       <div className="text-xs text-red-600 mt-1">{log.errorText}</div>
                     )}
                   </td>

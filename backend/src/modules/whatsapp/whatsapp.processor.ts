@@ -18,6 +18,13 @@ export class WhatsappProcessor extends WorkerHost {
   ) {
     const { logId, tenantId, accountId, phone, text } = job.data;
 
+    // A stopped broadcast leaves its unsent messages cancelled
+    const current = await this.prisma.whatsappMessageLog.findUnique({
+      where: { id: logId },
+      select: { status: true },
+    });
+    if (!current || current.status === 'cancelled') return;
+
     try {
       // Sends from the parent's own SIM, or another connected SIM if that one is down
       const result = await this.whatsappService.sendText(tenantId, accountId || null, phone, text);

@@ -449,10 +449,31 @@ model WhatsappMessageLog {
   errorText    String?   @map("error_text") @db.Text
   waMessageId  String?   @map("wa_message_id") @db.VarChar(100)
   sentAt       DateTime? @map("sent_at")
+  broadcastId  String?   @map("broadcast_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at")
 
   @@index([tenantId, createdAt])
   @@index([status])
   @@index([waMessageId])
+  @@index([broadcastId])
   @@map("whatsapp_message_logs")
+}
+
+// A message to the parents of selected classes, spread out over the day
+model WhatsappBroadcast {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  message      String    @db.Text
+  classes      Json
+  onlyWelcomed Boolean   @default(true) @map("only_welcomed")
+  total        Int       @default(0)
+  status       String    @default("running") @db.VarChar(20)
+  firstSendAt  DateTime? @map("first_send_at")
+  lastSendAt   DateTime? @map("last_send_at")
+  createdBy    String?   @map("created_by") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at")
+  cancelledAt  DateTime? @map("cancelled_at")
+
+  @@index([tenantId, createdAt])
+  @@map("whatsapp_broadcasts")
 }

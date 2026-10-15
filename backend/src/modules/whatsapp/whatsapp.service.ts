@@ -424,7 +424,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * Returns the SIM a parent is assigned to, assigning the least-loaded SIM the first time.
    * The assignment is kept, so a parent always hears from the same number.
    */
-  private async assignAccount(tenantId: string, parent: { id: string; whatsappAccountId: string | null }) {
+  async assignAccount(tenantId: string, parent: { id: string; whatsappAccountId: string | null }) {
     const accountIds = await this.linkedAccountIds(tenantId);
     if (accountIds.length === 0) return null;
     if (parent.whatsappAccountId && accountIds.includes(parent.whatsappAccountId)) {

@@ -1,9 +1,19 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import {
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+} from 'class-validator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { SimRole, WhatsappService } from './whatsapp.service';
+import { WhatsappBroadcastService } from './whatsapp-broadcast.service';
 
 class UpdateWhatsappSettingsDto {
   @IsOptional()
@@ -58,11 +68,36 @@ class TestMessageDto {
   accountId?: string;
 }
 
+class BroadcastPreviewDto {
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Select at least one class' })
+  @IsString({ each: true })
+  classes: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  onlyWelcomed?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  message?: string;
+}
+
+class CreateBroadcastDto extends BroadcastPreviewDto {
+  @IsString()
+  @MaxLength(1000)
+  declare message: string;
+}
+
 @Controller('admin/whatsapp')
 @UseGuards(AuthGuard('jwt'), RolesGuard)
 @Roles('admin')
 export class WhatsappController {
-  constructor(private whatsappService: WhatsappService) {}
+  constructor(
+    private whatsappService: WhatsappService,
+    private broadcastService: WhatsappBroadcastService,
+  ) {}
 
   @Get('status')
   async getStatus(@Request() req: any) {
@@ -125,6 +160,39 @@ export class WhatsappController {
   @Post('test')
   async sendTest(@Request() req: any, @Body() dto: TestMessageDto) {
     return this.whatsappService.sendTestMessage(req.user.tenantId, dto.phone, dto.accountId);
+  }
+
+  @Get('broadcast/classes')
+  async getBroadcastClasses(@Request() req: any) {
+    return { success: true, data: await this.broadcastService.getClasses(req.user.tenantId) };
+  }
+
+  @Post('broadcast/preview')
+  async previewBroadcast(@Request() req: any, @Body() dto: BroadcastPreviewDto) {
+    return {
+      success: true,
+      data: await this.broadcastService.preview(req.user.tenantId, dto.classes, dto.onlyWelcomed ?? true, dto.message),
+    };
+  }
+
+  @Get('broadcasts')
+  async listBroadcasts(@Request() req: any) {
+    return { success: true, data: await this.broadcastService.list(req.user.tenantId) };
+  }
+
+  @Post('broadcasts')
+  async createBroadcast(@Request() req: any, @Body() dto: CreateBroadcastDto) {
+    const broadcast = await this.broadcastService.create(req.user.tenantId, req.user.userId || null, {
+      message: dto.message,
+      classes: dto.classes,
+      onlyWelcomed: dto.onlyWelcomed ?? true,
+    });
+    return { success: true, data: broadcast };
+  }
+
+  @Post('broadcasts/:id/cancel')
+  async cancelBroadcast(@Request() req: any, @Param('id') id: string) {
+    return this.broadcastService.cancel(req.user.tenantId, id);
   }
 
   @Get('logs')
