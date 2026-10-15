@@ -5,14 +5,41 @@ import { PrismaService } from '../../common/prisma.service';
 import { normalizePhone, WhatsappService } from './whatsapp.service';
 
 // Broadcasts go out slowly so the numbers do not look like spam to WhatsApp:
-// spread over 12 sending hours (150 parents ≈ one message every ~5 minutes),
-// only between 9 AM and 9 PM in the company's time zone.
+// one message about every 5 minutes (150 parents ≈ 12 hours), only between
+// 9 AM and 9 PM in the company's time zone; a long list continues next day.
 const SEND_START_HOUR = 9;
 const SEND_END_HOUR = 21;
-const SPREAD_MS = 12 * 60 * 60 * 1000;
-const MIN_GAP_MS = 20 * 1000;
-const MAX_GAP_MS = 5 * 60 * 1000;
+const GAP_MS = 5 * 60 * 1000;
 const JITTER = 0.3;
+
+// Every parent gets the same notice with slightly different wording around it,
+// so WhatsApp does not see hundreds of identical messages
+const GREETINGS = [
+  'Assalam o Alaikum {parent_name},',
+  'Dear {parent_name},',
+  'Respected {parent_name},',
+  'Hello {parent_name},',
+  'Assalam o Alaikum dear {parent_name},',
+];
+const INTROS = [
+  'This message is about {student_name}.',
+  'An update regarding {student_name}:',
+  'Important information for {student_name}:',
+  'Please note the following for {student_name}:',
+  'We would like to inform you about {student_name}:',
+];
+const ICONS = ['📢', '📌', '🔔', '📣', '📝'];
+const CLOSINGS = [
+  'Thank you.',
+  'Thank you for your cooperation.',
+  'Regards.',
+  'Thanks for your support.',
+  'Best regards.',
+];
+
+function pick<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)];
+}
 
 // Attendance messages (no priority) always go before broadcast messages
 const BROADCAST_JOB_OPTIONS = {
@@ -77,11 +104,6 @@ function addSendingTime(date: Date, ms: number, timeZone: string) {
     left -= room;
     cursor = nextSendable(windowEnd, timeZone);
   }
-}
-
-/** Gap between two messages: the broadcast fills 12 sending hours, within safe limits */
-function gapFor(count: number) {
-  return Math.min(MAX_GAP_MS, Math.max(MIN_GAP_MS, SPREAD_MS / Math.max(count, 1)));
 }
 
 @Injectable()
@@ -157,21 +179,33 @@ export class WhatsappBroadcastService {
     return { settings, recipients, notWelcomed: all.length - all.filter((r) => r.welcomed).length };
   }
 
+  /**
+   * The notice with the parent's and children's names and a randomly chosen greeting,
+   * intro and closing. If the notice already uses {parent_name} / {student_name},
+   * the greeting / intro that would repeat the name is left out.
+   */
   private personalize(template: string, recipient: Recipient, companyName: string) {
     const parentName =
       recipient.parent.fullName && !recipient.parent.fullName.startsWith('Parent of')
         ? recipient.parent.fullName
         : 'Parent';
     const names = recipient.students.map((s) => s.fullName);
-    const studentNames = names.length > 1 ? `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}` : names[0];
-    const text = template
-      .replace(/\{parent_name\}/gi, parentName)
-      .replace(/\{student_name\}/gi, studentNames || '');
-    return companyName ? `${text}\n\n— ${companyName}` : text;
+    const studentNames =
+      (names.length > 1 ? `${names.slice(0, -1).join(', ')} & ${names[names.length - 1]}` : names[0]) || '';
+    const fill = (text: string) =>
+      text.replace(/\{parent_name\}/gi, parentName).replace(/\{student_name\}/gi, studentNames);
+
+    const parts: string[] = [];
+    if (!/\{parent_name\}/i.test(template)) parts.push(fill(pick(GREETINGS)), '');
+    const body = fill(template.trim());
+    parts.push(/\{student_name\}/i.test(template) ? body : `${pick(ICONS)} ${fill(pick(INTROS))}\n${body}`);
+    parts.push('', pick(CLOSINGS));
+    if (companyName) parts.push(`— ${companyName}`);
+    return parts.join('\n');
   }
 
   private schedule(count: number, timeZone: string) {
-    const gap = gapFor(count);
+    const gap = GAP_MS;
     const start = nextSendable(new Date(), timeZone);
     // Each message gets its own slot, moved a little at random so the gaps look natural;
     // the randomness does not add up, so the broadcast still ends inside its 12 hours
@@ -194,7 +228,12 @@ export class WhatsappBroadcastService {
       firstSendAt: times[0] || null,
       lastSendAt: times[times.length - 1] || null,
       timeZone: settings.timeZone,
-      sample: message && recipients[0] ? this.personalize(message, recipients[0], tenant?.name || '') : null,
+      // A few examples, to show how the wording changes from parent to parent
+      samples: message?.trim()
+        ? Array.from({ length: Math.min(3, recipients.length) }, (_, i) =>
+            this.personalize(message, recipients[i], tenant?.name || ''),
+          )
+        : [],
     };
   }
 

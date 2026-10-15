@@ -58,6 +58,13 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         isActive: (path) => path.startsWith('/dashboard/whatsapp'),
       },
       {
+        href: '/dashboard/broadcast',
+        label: 'Broadcast',
+        icon: '📢',
+        show: hasRole('admin'),
+        isActive: (path) => path.startsWith('/dashboard/broadcast'),
+      },
+      {
         href: '/dashboard/users',
         label: 'Users',
         icon: '👥',

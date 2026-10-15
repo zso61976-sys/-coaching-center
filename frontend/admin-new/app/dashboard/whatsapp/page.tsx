@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import BroadcastCard from './BroadcastCard';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api`
@@ -587,8 +586,6 @@ export default function WhatsappPage() {
           </form>
         </div>
       </div>
-
-      <BroadcastCard request={request} enabled={settingsForm.enabled} connectedCount={connectedCount} />
 
       {/* Message log */}
       <div className="bg-white rounded-xl shadow-sm">

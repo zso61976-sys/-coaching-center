@@ -15,7 +15,7 @@ interface Preview {
   firstSendAt: string | null;
   lastSendAt: string | null;
   timeZone: string;
-  sample: string | null;
+  samples: string[];
 }
 
 interface Broadcast {
@@ -53,7 +53,7 @@ function formatGap(seconds: number) {
   return `${Math.round(seconds / 60)} minutes`;
 }
 
-/** Parents-only broadcast by class, sent slowly over 12 sending hours (9 AM – 9 PM) */
+/** Parents-only broadcast by class, one message about every 5 minutes, 9 AM – 9 PM */
 export default function BroadcastCard({
   request,
   enabled,
@@ -184,11 +184,11 @@ export default function BroadcastCard({
   return (
     <div className="bg-white rounded-xl shadow-sm p-6 space-y-5">
       <div>
-        <h3 className="text-lg font-semibold text-gray-800">Broadcast to parents</h3>
+        <h3 className="text-lg font-semibold text-gray-800">New broadcast</h3>
         <p className="text-sm text-gray-600 mt-1">
           Send a notice (exam, test, holiday…) to the parents of selected classes. To keep your WhatsApp
-          numbers safe, messages are spread over 12 sending hours, only between 9 AM and 9 PM, from each
-          parent&apos;s own SIM. Parents with the same number get it once.
+          numbers safe, one message goes out about every 5 minutes (150 parents ≈ 12 hours), only between
+          9 AM and 9 PM, from each parent&apos;s own SIM. Parents with the same number get it once.
         </p>
       </div>
 
@@ -276,7 +276,7 @@ export default function BroadcastCard({
             onChange={(e) => setText(e.target.value.slice(0, MAX_LENGTH))}
             rows={6}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
-            placeholder="Dear {parent_name}, {student_name}'s math test is on Monday at 4 PM. Please make sure they come on time."
+            placeholder="Class 5 math test is on Monday at 4 PM. Please make sure your child comes on time."
           />
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="text-gray-500">Insert:</span>
@@ -295,7 +295,9 @@ export default function BroadcastCard({
             </span>
           </div>
           <p className="text-xs text-gray-500">
-            Names make each message different, which WhatsApp treats as normal messages instead of spam.
+            Just write the notice. The parent&apos;s and child&apos;s names are added automatically, with a
+            greeting and closing worded a little differently for every parent, so WhatsApp sees normal
+            messages instead of hundreds of copies. Your notice itself stays exactly as written.
           </p>
         </div>
       </div>
@@ -324,11 +326,20 @@ export default function BroadcastCard({
               message yet.
             </p>
           )}
-          {preview.sample && (
+          {preview.samples.length > 0 && (
             <div>
-              <p className="text-xs text-gray-500 mb-1">What the first parent will see:</p>
-              <div className="whitespace-pre-wrap rounded-lg bg-[#dcf8c6] text-gray-900 px-3 py-2 max-w-md">
-                {preview.sample}
+              <p className="text-xs text-gray-500 mb-1">
+                Examples — each parent gets slightly different wording:
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                {preview.samples.map((sample, i) => (
+                  <div
+                    key={i}
+                    className="whitespace-pre-wrap rounded-lg bg-[#dcf8c6] text-gray-900 px-3 py-2 text-sm"
+                  >
+                    {sample}
+                  </div>
+                ))}
               </div>
             </div>
           )}
