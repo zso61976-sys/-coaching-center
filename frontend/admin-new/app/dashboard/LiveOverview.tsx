@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useAuth } from '../contexts/AuthContext';
 import ClassAttendanceChart, { ClassAttendance } from './ClassAttendanceChart';
 import TeacherStatusCard, { TeacherStatus } from './TeacherStatusCard';
+import { serverDateKey } from './serverDate';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api`
@@ -82,11 +83,7 @@ const SIM_STATUS: Record<SimStatus, { label: string; dot: string; text: string }
   disconnected: { label: 'Offline', dot: 'bg-red-500', text: 'text-red-700' },
 };
 
-function dateKey(daysAgo = 0) {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
+const dateKey = serverDateKey;
 
 function formatTime(date: string | null) {
   return date ? new Date(date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';

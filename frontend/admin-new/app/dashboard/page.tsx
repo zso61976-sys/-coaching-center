@@ -4,6 +4,7 @@ import { Suspense, useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import LiveOverview from './LiveOverview';
+import { serverDateKey, serverMonthStartKey, serverWeekStartKey } from './serverDate';
 import * as XLSX from 'xlsx';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
@@ -229,8 +230,8 @@ function DashboardContent() {
     parentPhone: '',
     parentTelegramChatId: '',
   });
-  const [reportStartDate, setReportStartDate] = useState(new Date().toISOString().split('T')[0]);
-  const [reportEndDate, setReportEndDate] = useState(new Date().toISOString().split('T')[0]);
+  const [reportStartDate, setReportStartDate] = useState(serverDateKey());
+  const [reportEndDate, setReportEndDate] = useState(serverDateKey());
   const [subjectForm, setSubjectForm] = useState({ code: '', name: '', fee: '', grade: '' });
   const [devices, setDevices] = useState<BiometricDevice[]>([]);
   const [editingStudent, setEditingStudent] = useState<Student | null>(null);
@@ -3549,7 +3550,7 @@ function DashboardContent() {
                   </button>
                   <button
                     onClick={() => {
-                      const today = new Date().toISOString().split('T')[0];
+                      const today = serverDateKey();
                       setReportStartDate(today);
                       setReportEndDate(today);
                       fetchAttendance(today, today);
@@ -3560,11 +3561,8 @@ function DashboardContent() {
                   </button>
                   <button
                     onClick={() => {
-                      const today = new Date();
-                      const weekStart = new Date(today);
-                      weekStart.setDate(today.getDate() - today.getDay());
-                      const start = weekStart.toISOString().split('T')[0];
-                      const end = today.toISOString().split('T')[0];
+                      const start = serverWeekStartKey();
+                      const end = serverDateKey();
                       setReportStartDate(start);
                       setReportEndDate(end);
                       fetchAttendance(start, end);
@@ -3575,10 +3573,8 @@ function DashboardContent() {
                   </button>
                   <button
                     onClick={() => {
-                      const today = new Date();
-                      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-                      const start = monthStart.toISOString().split('T')[0];
-                      const end = today.toISOString().split('T')[0];
+                      const start = serverMonthStartKey();
+                      const end = serverDateKey();
                       setReportStartDate(start);
                       setReportEndDate(end);
                       fetchAttendance(start, end);
