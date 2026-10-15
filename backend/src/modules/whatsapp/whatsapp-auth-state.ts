@@ -5,6 +5,11 @@ import { PrismaService } from '../../common/prisma.service';
  * WhatsApp login survives container rebuilds. Mirrors Baileys'
  * useMultiFileAuthState, one row per key per WhatsApp account (SIM).
  */
+// Baileys can hand over thousands of keys at once (e.g. after a reconnect).
+// Writing them in parallel exhausted Prisma's connection pool and crashed the
+// backend, so keys are read with one query and written in sequential batches.
+const WRITE_BATCH = 100;
+
 export async function useDbAuthState(prisma: PrismaService, accountId: string, baileys: any) {
   const { initAuthCreds, BufferJSON, proto } = baileys;
 
@@ -24,10 +29,6 @@ export async function useDbAuthState(prisma: PrismaService, accountId: string, b
     });
   };
 
-  const removeData = async (key: string) => {
-    await prisma.whatsappAuth.deleteMany({ where: { accountId, key } });
-  };
-
   const creds = (await readData('creds')) || initAuthCreds();
 
   return {
@@ -35,28 +36,46 @@ export async function useDbAuthState(prisma: PrismaService, accountId: string, b
       creds,
       keys: {
         get: async (type: string, ids: string[]) => {
+          const rows = await prisma.whatsappAuth.findMany({
+            where: { accountId, key: { in: ids.map((id) => `${type}-${id}`) } },
+          });
+          const byKey = new Map(rows.map((r) => [r.key, r.value]));
           const data: Record<string, any> = {};
-          await Promise.all(
-            ids.map(async (id) => {
-              let value = await readData(`${type}-${id}`);
-              if (type === 'app-state-sync-key' && value) {
-                value = proto.Message.AppStateSyncKeyData.fromObject(value);
-              }
-              data[id] = value;
-            }),
-          );
+          for (const id of ids) {
+            const raw = byKey.get(`${type}-${id}`);
+            let value = raw ? JSON.parse(raw, BufferJSON.reviver) : null;
+            if (type === 'app-state-sync-key' && value) {
+              value = proto.Message.AppStateSyncKeyData.fromObject(value);
+            }
+            data[id] = value;
+          }
           return data;
         },
         set: async (data: Record<string, Record<string, any>>) => {
-          const tasks: Promise<void>[] = [];
+          const writes: { key: string; value: string }[] = [];
+          const removals: string[] = [];
           for (const category of Object.keys(data)) {
             for (const id of Object.keys(data[category])) {
               const value = data[category][id];
               const key = `${category}-${id}`;
-              tasks.push(value ? writeData(key, value) : removeData(key));
+              if (value) writes.push({ key, value: JSON.stringify(value, BufferJSON.replacer) });
+              else removals.push(key);
             }
           }
-          await Promise.all(tasks);
+          for (let i = 0; i < writes.length; i += WRITE_BATCH) {
+            await prisma.$transaction(
+              writes.slice(i, i + WRITE_BATCH).map(({ key, value }) =>
+                prisma.whatsappAuth.upsert({
+                  where: { accountId_key: { accountId, key } },
+                  create: { accountId, key, value },
+                  update: { value },
+                }),
+              ),
+            );
+          }
+          if (removals.length) {
+            await prisma.whatsappAuth.deleteMany({ where: { accountId, key: { in: removals } } });
+          }
         },
       },
     },

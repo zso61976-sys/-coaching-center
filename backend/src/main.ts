@@ -2,6 +2,11 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
+// A failed background task (e.g. WhatsApp session I/O) must not take the whole API down
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection:', reason);
+});
+
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     bodyParser: false,
