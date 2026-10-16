@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import LiveOverview from './LiveOverview';
 import StudentModal, { ModalSectionBlock } from './StudentModal';
+import { useClasses } from './useClasses';
 import { serverDateKey, serverMonthStartKey, serverWeekStartKey } from './serverDate';
 import * as XLSX from 'xlsx';
 
@@ -113,9 +114,6 @@ interface ClassSchedule {
   isRecurring: boolean;
 }
 
-// Available grades/classes
-const grades = ['9th', '10th', '11th', '12th'];
-
 // Teacher color palette for schedule
 const teacherColors = [
   { bg: 'bg-blue-100', text: 'text-blue-800', hover: 'hover:bg-blue-200', border: 'border-blue-300' },
@@ -220,7 +218,12 @@ export default function DashboardPage() {
 
 function DashboardContent() {
   const router = useRouter();
-  const { hasModuleAccess, hasRole } = useAuth();
+  const { hasModuleAccess, hasRole, token: authToken } = useAuth();
+  // Classes are kept on the server and managed on the Subjects page
+  const { classes: grades, usage: classUsage, save: saveClasses } = useClasses(API_URL, authToken);
+  const [newClassName, setNewClassName] = useState('');
+  const [classError, setClassError] = useState('');
+  const [classSaving, setClassSaving] = useState(false);
   // The section to show comes from the sidebar link (?tab=...); no tab means the live dashboard
   const searchParams = useSearchParams();
   const requestedTab = (searchParams.get('tab') || 'overview') as DashboardTab;
@@ -1193,6 +1196,46 @@ function DashboardContent() {
     setSubjectForm({ code: '', name: '', fee: '', grade: '' });
     setShowSubjectForm(false);
     setSuccess(`Subject "${newSubject.code} - ${newSubject.name}" added for ${newSubject.grade} class`);
+  };
+
+  const handleAddClass = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const name = newClassName.trim().replace(/\s+/g, ' ');
+    if (!name) return;
+    if (grades.some(g => g.toLowerCase() === name.toLowerCase())) {
+      setClassError(`${name} is already on the list`);
+      return;
+    }
+    setClassSaving(true);
+    setClassError('');
+    const err = await saveClasses([...grades, name]);
+    setClassSaving(false);
+    if (err) {
+      setClassError(err);
+    } else {
+      setNewClassName('');
+      setSuccess(`Class "${name}" added`);
+    }
+  };
+
+  const handleRemoveClass = async (name: string) => {
+    // Subjects live in this browser, so the server can't see them: check here
+    const subjectCount = subjects.filter(s => s.grade === name).length;
+    if (subjectCount) {
+      setClassError(`${name} still has ${subjectCount} subject${subjectCount === 1 ? '' : 's'}. Delete them or move them to another class first.`);
+      return;
+    }
+    if (!window.confirm(`Remove class ${name}?`)) return;
+    setClassSaving(true);
+    setClassError('');
+    const err = await saveClasses(grades.filter(g => g !== name));
+    setClassSaving(false);
+    if (err) {
+      setClassError(err);
+    } else {
+      if (filterGrade === name) setFilterGrade('');
+      setSuccess(`Class "${name}" removed`);
+    }
   };
 
   const handleDeleteSubject = (id: string) => {
@@ -2198,6 +2241,58 @@ function DashboardContent() {
         {/* Subjects Tab */}
         {activeTab === 'subjects' && !noAccess && (
           <div>
+            {/* Classes */}
+            <div className="bg-white p-6 rounded-xl shadow mb-6">
+              <div className="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+                <h2 className="text-lg font-bold">Classes</h2>
+                <p className="text-sm text-gray-500">Used for students, subjects, teachers and schedules</p>
+              </div>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {grades.map(g => {
+                  const subjectCount = subjects.filter(s => s.grade === g).length;
+                  return (
+                    <span
+                      key={g}
+                      className="inline-flex items-center gap-2 pl-3 pr-1 py-1 rounded-full bg-purple-50 border border-purple-200 text-sm"
+                    >
+                      <span className="font-semibold text-purple-800">{g}</span>
+                      <span className="text-xs text-gray-500">
+                        {classUsage[g]?.students || 0} students · {subjectCount} subjects
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveClass(g)}
+                        disabled={classSaving}
+                        className="w-6 h-6 rounded-full leading-none text-gray-400 hover:bg-red-100 hover:text-red-600 disabled:opacity-40"
+                        title={`Remove ${g}`}
+                        aria-label={`Remove class ${g}`}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  );
+                })}
+              </div>
+              <form onSubmit={handleAddClass} className="flex flex-wrap gap-2">
+                <input
+                  type="text"
+                  value={newClassName}
+                  onChange={(e) => { setNewClassName(e.target.value); setClassError(''); }}
+                  maxLength={20}
+                  className="w-full sm:w-64 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  placeholder="e.g., 8th, O Level, Nursery"
+                />
+                <button
+                  type="submit"
+                  disabled={classSaving || !newClassName.trim()}
+                  className="px-5 py-2 bg-purple-600 text-white rounded-lg font-medium hover:bg-purple-700 disabled:opacity-50"
+                >
+                  {classSaving ? 'Saving…' : '+ Add Class'}
+                </button>
+              </form>
+              {classError && <p className="mt-3 text-sm text-red-600">{classError}</p>}
+            </div>
+
             <div className="mb-6">
               <button
                 onClick={() => {

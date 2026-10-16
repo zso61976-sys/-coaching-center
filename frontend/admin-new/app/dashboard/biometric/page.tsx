@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useClasses } from '../useClasses';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
   ? process.env.NEXT_PUBLIC_API_URL
@@ -99,6 +100,7 @@ interface DeviceUser {
 
 export default function BiometricPage() {
   const { token, hasRole, isLoading } = useAuth();
+  const { classes } = useClasses(`${API_URL}/api`, token);
   const [activeTab, setActiveTab] = useState<'devices' | 'logs' | 'enrollments'>('devices');
 
   const [devices, setDevices] = useState<BiometricDevice[]>([]);
@@ -1537,7 +1539,7 @@ export default function BiometricPage() {
                       onChange={e => setAddProfileForm(f => ({ ...f, grade: e.target.value, selectedSubjects: [] }))}
                       className="w-full border rounded-lg px-3 py-2 text-sm">
                       <option value="">Select grade</option>
-                      {['9th', '10th', '11th', '12th'].map(g => <option key={g} value={g}>{g}</option>)}
+                      {classes.map(g => <option key={g} value={g}>{g}</option>)}
                     </select>
                   </div>
                 ) : (
@@ -1577,7 +1579,7 @@ export default function BiometricPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Classes</label>
                   <div className="flex flex-wrap gap-2">
-                    {['9th', '10th', '11th', '12th'].map(cls => (
+                    {classes.map(cls => (
                       <label key={cls} className="flex items-center gap-1 text-sm cursor-pointer">
                         <input type="checkbox"
                           checked={addProfileForm.teacherClasses.includes(cls)}

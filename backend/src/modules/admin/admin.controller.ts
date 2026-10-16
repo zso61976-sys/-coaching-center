@@ -1,6 +1,14 @@
-import { Controller, Get, Query, UseGuards, Request } from '@nestjs/common';
+import { Body, Controller, Get, Put, Query, UseGuards, Request } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ArrayMaxSize, IsArray, IsString } from 'class-validator';
 import { AdminService } from './admin.service';
+
+class UpdateClassesDto {
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsString({ each: true })
+  classes: string[];
+}
 
 @Controller('admin')
 @UseGuards(AuthGuard('jwt'))
@@ -40,5 +48,15 @@ export class AdminController {
   @Get('telegram-stats')
   async getTelegramStats(@Request() req: any) {
     return this.adminService.getTelegramStats(req.user.tenantId);
+  }
+
+  @Get('classes')
+  async getClasses(@Request() req: any) {
+    return { success: true, data: await this.adminService.getClasses(req.user.tenantId) };
+  }
+
+  @Put('classes')
+  async updateClasses(@Request() req: any, @Body() dto: UpdateClassesDto) {
+    return { success: true, data: await this.adminService.updateClasses(req.user.tenantId, dto.classes) };
   }
 }

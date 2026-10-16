@@ -1,5 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
+
+/** Classes a new company starts with, until it saves its own list */
+const DEFAULT_CLASSES = ['9th', '10th', '11th', '12th'];
+const MAX_CLASS_LENGTH = 20; // class_schedules.class_grade is VARCHAR(20)
+
+const sameClass = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+const byClassName = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
 
 @Injectable()
 export class AdminService {
@@ -146,5 +153,88 @@ export class AdminService {
         success_rate: successRate,
       },
     };
+  }
+
+  /**
+   * The company's classes, with how many active students, teachers and schedules use each.
+   * A class that students already have stays on the list even if it was never added.
+   */
+  async getClasses(tenantId: string) {
+    const [tenant, studentGroups, teachers, schedules] = await Promise.all([
+      this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } }),
+      this.prisma.student.groupBy({
+        by: ['grade'],
+        where: { tenantId, status: 'active' },
+        _count: { _all: true },
+      }),
+      this.prisma.teacher.findMany({ where: { tenantId, status: 'active' }, select: { classes: true } }),
+      this.prisma.classSchedule.findMany({ where: { tenantId, status: 'active' }, select: { classGrade: true } }),
+    ]);
+
+    const saved = ((tenant?.settings as any) || {}).classes;
+    const classes: string[] = Array.isArray(saved) ? [...saved] : [...DEFAULT_CLASSES];
+    const usage: Record<string, { students: number; teachers: number; schedules: number }> = {};
+    const use = (raw: string | null | undefined, field: 'students' | 'teachers' | 'schedules', n = 1) => {
+      const name = (raw || '').trim();
+      if (!name) return;
+      let key = classes.find((c) => sameClass(c, name));
+      if (!key) {
+        classes.push(name);
+        key = name;
+      }
+      usage[key] = usage[key] || { students: 0, teachers: 0, schedules: 0 };
+      usage[key][field] += n;
+    };
+
+    for (const g of studentGroups) use(g.grade, 'students', g._count._all);
+    for (const t of teachers) for (const c of t.classes) use(c, 'teachers');
+    for (const s of schedules) use(s.classGrade, 'schedules');
+
+    return {
+      classes: classes.sort(byClassName),
+      usage: Object.fromEntries(classes.map((c) => [c, usage[c] || { students: 0, teachers: 0, schedules: 0 }])),
+    };
+  }
+
+  /** Save the company's class list. A class still in use can't be removed. */
+  async updateClasses(tenantId: string, input: string[]) {
+    const classes: string[] = [];
+    for (const raw of input) {
+      const name = raw.trim().replace(/\s+/g, ' ');
+      if (!name) continue;
+      if (name.length > MAX_CLASS_LENGTH) {
+        throw new BadRequestException(`"${name}" is too long (${MAX_CLASS_LENGTH} characters at most)`);
+      }
+      if (classes.some((c) => sameClass(c, name))) {
+        throw new BadRequestException(`"${name}" is on the list twice`);
+      }
+      classes.push(name);
+    }
+
+    const current = await this.getClasses(tenantId);
+    const stillUsed = current.classes
+      .filter((c) => !classes.some((n) => sameClass(n, c)))
+      .map((c) => ({ name: c, ...current.usage[c] }))
+      .filter((c) => c.students || c.teachers || c.schedules);
+    if (stillUsed.length) {
+      const describe = (c: (typeof stillUsed)[number]) =>
+        [
+          c.students && `${c.students} student${c.students === 1 ? '' : 's'}`,
+          c.teachers && `${c.teachers} teacher${c.teachers === 1 ? '' : 's'}`,
+          c.schedules && `${c.schedules} schedule${c.schedules === 1 ? '' : 's'}`,
+        ]
+          .filter(Boolean)
+          .join(', ');
+      throw new BadRequestException(
+        `Can't remove ${stillUsed.map((c) => `${c.name} (${describe(c)})`).join('; ')}. Move them to another class first.`,
+      );
+    }
+
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { settings: true } });
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data: { settings: { ...((tenant?.settings as any) || {}), classes: classes.sort(byClassName) } },
+    });
+    return this.getClasses(tenantId);
   }
 }
