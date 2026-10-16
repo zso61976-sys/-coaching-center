@@ -5,12 +5,12 @@ import { PrismaService } from '../../common/prisma.service';
 import { normalizePhone, WhatsappService } from './whatsapp.service';
 
 // Broadcasts go out slowly so the numbers do not look like spam to WhatsApp:
-// one message about every 5 minutes (150 parents ≈ 12 hours), only between
-// 9 AM and 9 PM in the company's time zone; a long list continues next day.
-const SEND_START_HOUR = 9;
-const SEND_END_HOUR = 21;
-const GAP_MS = 5 * 60 * 1000;
+// one message about every 2 minutes (150 parents ≈ 5 hours), starting as soon
+// as the broadcast is saved or at the time it was scheduled for
+const GAP_MS = 2 * 60 * 1000;
 const JITTER = 0.3;
+// How far ahead a broadcast can be scheduled
+const MAX_SCHEDULE_DAYS = 30;
 
 // Every parent gets the same notice with slightly different wording around it,
 // so WhatsApp does not see hundreds of identical messages
@@ -57,53 +57,17 @@ interface Recipient {
   students: { id: string; fullName: string }[];
 }
 
-// ---------------------------------------------------------------------------
-// Time zone helpers
-// ---------------------------------------------------------------------------
-
-function zonedParts(date: Date, timeZone: string) {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: 'numeric',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: 'numeric',
-    second: 'numeric',
-  }).formatToParts(date);
-  const get = (type: string) => Number(parts.find((p) => p.type === type)?.value);
-  return { year: get('year'), month: get('month'), day: get('day'), hour: get('hour'), minute: get('minute'), second: get('second') };
-}
-
-/** The instant of the given local wall-clock time in a time zone (day may overflow) */
-function zonedDate(year: number, month: number, day: number, hour: number, timeZone: string) {
-  const guess = Date.UTC(year, month - 1, day, hour);
-  const p = zonedParts(new Date(guess), timeZone);
-  const offset = Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - guess;
-  return new Date(guess - offset);
-}
-
-/** The same instant if it is within sending hours, otherwise the start of the next sending window */
-function nextSendable(date: Date, timeZone: string) {
-  const p = zonedParts(date, timeZone);
-  if (p.hour < SEND_START_HOUR) return zonedDate(p.year, p.month, p.day, SEND_START_HOUR, timeZone);
-  if (p.hour >= SEND_END_HOUR) return zonedDate(p.year, p.month, p.day + 1, SEND_START_HOUR, timeZone);
-  return date;
-}
-
-/** Moves forward by `ms` of sending time, skipping the nights */
-function addSendingTime(date: Date, ms: number, timeZone: string) {
-  let cursor = nextSendable(date, timeZone);
-  let left = ms;
-  for (;;) {
-    const p = zonedParts(cursor, timeZone);
-    const windowEnd = zonedDate(p.year, p.month, p.day, SEND_END_HOUR, timeZone);
-    const room = windowEnd.getTime() - cursor.getTime();
-    if (left <= room) return new Date(cursor.getTime() + left);
-    left -= room;
-    cursor = nextSendable(windowEnd, timeZone);
+/** The start time of a broadcast: now, or the scheduled time if one was chosen */
+function resolveStart(startAt?: string | null) {
+  if (!startAt) return new Date();
+  const start = new Date(startAt);
+  if (isNaN(start.getTime())) throw new BadRequestException('Invalid schedule time');
+  // A minute of slack for the time it takes to fill in the form
+  if (start.getTime() < Date.now() - 60 * 1000) throw new BadRequestException('The schedule time is in the past');
+  if (start.getTime() > Date.now() + MAX_SCHEDULE_DAYS * 24 * 60 * 60 * 1000) {
+    throw new BadRequestException(`A broadcast can be scheduled at most ${MAX_SCHEDULE_DAYS} days ahead`);
   }
+  return start < new Date() ? new Date() : start;
 }
 
 @Injectable()
@@ -204,22 +168,21 @@ export class WhatsappBroadcastService {
     return parts.join('\n');
   }
 
-  private schedule(count: number, timeZone: string) {
+  private schedule(count: number, start: Date) {
     const gap = GAP_MS;
-    const start = nextSendable(new Date(), timeZone);
     // Each message gets its own slot, moved a little at random so the gaps look natural;
-    // the randomness does not add up, so the broadcast still ends inside its 12 hours
+    // the randomness does not add up, so the broadcast still ends on time
     const times: Date[] = [];
     for (let i = 0; i < count; i++) {
       const jitter = i > 0 ? (Math.random() * 2 - 1) * JITTER * gap : 0;
-      times.push(addSendingTime(start, i * gap + jitter, timeZone));
+      times.push(new Date(start.getTime() + i * gap + jitter));
     }
     return { gapSeconds: Math.round(gap / 1000), times };
   }
 
-  async preview(tenantId: string, classes: string[], onlyWelcomed: boolean, message?: string) {
+  async preview(tenantId: string, classes: string[], onlyWelcomed: boolean, message?: string, startAt?: string) {
     const { settings, recipients, notWelcomed } = await this.buildRecipients(tenantId, classes, onlyWelcomed);
-    const { gapSeconds, times } = this.schedule(recipients.length, settings.timeZone);
+    const { gapSeconds, times } = this.schedule(recipients.length, resolveStart(startAt));
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     return {
       recipients: recipients.length,
@@ -253,9 +216,14 @@ export class WhatsappBroadcastService {
     }
   }
 
-  async create(tenantId: string, userId: string | null, data: { message: string; classes: string[]; onlyWelcomed: boolean }) {
+  async create(
+    tenantId: string,
+    userId: string | null,
+    data: { message: string; classes: string[]; onlyWelcomed: boolean; startAt?: string },
+  ) {
     const message = data.message.trim();
     if (!message) throw new BadRequestException('Write a message first');
+    const start = resolveStart(data.startAt);
 
     const { settings, recipients } = await this.buildRecipients(tenantId, data.classes, data.onlyWelcomed);
     if (!settings.enabled) throw new BadRequestException('Turn on WhatsApp notifications first');
@@ -265,11 +233,11 @@ export class WhatsappBroadcastService {
     await this.refreshStatuses(tenantId);
     const running = await this.prisma.whatsappBroadcast.count({ where: { tenantId, status: 'running' } });
     if (running > 0) {
-      throw new BadRequestException('A broadcast is still sending. Wait for it to finish or stop it first.');
+      throw new BadRequestException('A broadcast is still sending or scheduled. Wait for it to finish or stop it first.');
     }
 
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
-    const { times } = this.schedule(recipients.length, settings.timeZone);
+    const { times } = this.schedule(recipients.length, start);
 
     const broadcast = await this.prisma.whatsappBroadcast.create({
       data: {

@@ -48,12 +48,18 @@ function className(name: string) {
   return name || NO_CLASS_LABEL;
 }
 
+/** Value for a datetime-local input, in the browser's own time */
+function toLocalInput(date: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
 function formatGap(seconds: number) {
   if (seconds < 90) return `${seconds} seconds`;
   return `${Math.round(seconds / 60)} minutes`;
 }
 
-/** Parents-only broadcast by class, one message about every 5 minutes, 9 AM – 9 PM */
+/** Parents-only broadcast by class, one message about every 2 minutes, now or at a scheduled time */
 export default function BroadcastCard({
   request,
   enabled,
@@ -67,6 +73,8 @@ export default function BroadcastCard({
   const [selected, setSelected] = useState<string[]>([]);
   const [text, setText] = useState('');
   const [onlyWelcomed, setOnlyWelcomed] = useState(true);
+  const [scheduled, setScheduled] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState('');
   const [preview, setPreview] = useState<Preview | null>(null);
   const [broadcasts, setBroadcasts] = useState<Broadcast[]>([]);
   const [busy, setBusy] = useState(false);
@@ -96,19 +104,23 @@ export default function BroadcastCard({
     return () => clearInterval(timer);
   }, [running, loadBroadcasts]);
 
+  // Empty = send right away
+  const startAt = scheduled && scheduleAt ? new Date(scheduleAt).toISOString() : undefined;
+  const scheduleInPast = !!startAt && new Date(startAt).getTime() < Date.now();
+
   // Preview: who gets it, how fast and until when
   useEffect(() => {
-    if (selected.length === 0) {
+    if (selected.length === 0 || scheduleInPast) {
       setPreview(null);
       return;
     }
     const timer = setTimeout(() => {
-      request('/broadcast/preview', 'POST', { classes: selected, onlyWelcomed, message: text || undefined })
+      request('/broadcast/preview', 'POST', { classes: selected, onlyWelcomed, message: text || undefined, startAt })
         .then((json) => setPreview(json.data))
         .catch((err) => console.error('Preview failed:', err));
     }, 400);
     return () => clearTimeout(timer);
-  }, [selected, onlyWelcomed, text, request]);
+  }, [selected, onlyWelcomed, text, startAt, scheduleInPast, request]);
 
   const toggleClass = (name: string) =>
     setSelected((prev) => (prev.includes(name) ? prev.filter((c) => c !== name) : [...prev, name]));
@@ -142,19 +154,27 @@ export default function BroadcastCard({
   const send = async () => {
     if (!preview || preview.recipients === 0) return;
     const ok = window.confirm(
-      `Send this message to ${preview.recipients} parent(s)?\n\n` +
-        `It goes out slowly, one message about every ${formatGap(preview.gapSeconds)}, ` +
-        `and finishes around ${formatTime(preview.lastSendAt)}.`,
+      `${startAt ? 'Schedule' : 'Send'} this message to ${preview.recipients} parent(s)?\n\n` +
+        `It starts ${startAt ? formatTime(preview.firstSendAt) : 'now'} and goes out slowly, ` +
+        `one message about every ${formatGap(preview.gapSeconds)}, ` +
+        `finishing around ${formatTime(preview.lastSendAt)}.`,
     );
     if (!ok) return;
 
     setBusy(true);
     setNotice(null);
     try {
-      const json = await request('/broadcasts', 'POST', { classes: selected, onlyWelcomed, message: text });
-      setNotice({ ok: true, text: `Broadcast started: ${json.data.total} message(s) scheduled.` });
+      const json = await request('/broadcasts', 'POST', { classes: selected, onlyWelcomed, message: text, startAt });
+      setNotice({
+        ok: true,
+        text: startAt
+          ? `Broadcast scheduled: ${json.data.total} message(s), starting ${formatTime(json.data.firstSendAt)}.`
+          : `Broadcast started: ${json.data.total} message(s), the first one goes out now.`,
+      });
       setText('');
       setSelected([]);
+      setScheduled(false);
+      setScheduleAt('');
       await loadBroadcasts();
     } catch (err: unknown) {
       setNotice({ ok: false, text: err instanceof Error ? err.message : 'Could not start the broadcast' });
@@ -179,7 +199,7 @@ export default function BroadcastCard({
 
   const allSelected = !!classes && classes.length > 0 && selected.length === classes.length;
   const canSend =
-    enabled && connectedCount > 0 && !running && !busy && text.trim().length > 0 && !!preview && preview.recipients > 0;
+    enabled && connectedCount > 0 && !running && !busy && text.trim().length > 0 && !!preview && preview.recipients > 0 && (!scheduled || (!!scheduleAt && !scheduleInPast));
 
   return (
     <div className="bg-white rounded-xl shadow-sm p-6 space-y-5">
@@ -187,8 +207,9 @@ export default function BroadcastCard({
         <h3 className="text-lg font-semibold text-gray-800">New broadcast</h3>
         <p className="text-sm text-gray-600 mt-1">
           Send a notice (exam, test, holiday…) to the parents of selected classes. To keep your WhatsApp
-          numbers safe, one message goes out about every 5 minutes (150 parents ≈ 12 hours), only between
-          9 AM and 9 PM, from each parent&apos;s own SIM. Parents with the same number get it once.
+          numbers safe, one message goes out about every 2 minutes (150 parents ≈ 5 hours), from each
+          parent&apos;s own SIM. Sending starts as soon as you click Send, or at the time you schedule.
+          Parents with the same number get it once.
         </p>
       </div>
 
@@ -306,6 +327,39 @@ export default function BroadcastCard({
       {preview && (
         <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3 text-sm">
           <p className="font-medium text-gray-800">3. Check and send</p>
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-gray-700">
+              <input
+                type="radio"
+                checked={!scheduled}
+                onChange={() => setScheduled(false)}
+                className="h-4 w-4 text-indigo-600"
+              />
+              Send now
+            </label>
+            <label className="flex items-center gap-2 text-gray-700">
+              <input
+                type="radio"
+                checked={scheduled}
+                onChange={() => {
+                  setScheduled(true);
+                  if (!scheduleAt) setScheduleAt(toLocalInput(new Date(Date.now() + 60 * 60 * 1000)));
+                }}
+                className="h-4 w-4 text-indigo-600"
+              />
+              Schedule for later
+            </label>
+            {scheduled && (
+              <input
+                type="datetime-local"
+                value={scheduleAt}
+                min={toLocalInput(new Date())}
+                onChange={(e) => setScheduleAt(e.target.value)}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 text-sm"
+              />
+            )}
+          </div>
+          {scheduleInPast && <p className="text-xs text-red-700">The schedule time is in the past.</p>}
           {preview.recipients === 0 ? (
             <p className="text-gray-600">No parents to send to in the selected classes.</p>
           ) : (
@@ -344,7 +398,7 @@ export default function BroadcastCard({
             </div>
           )}
           {running && (
-            <p className="text-xs text-blue-800">A broadcast is still sending. Wait for it to finish or stop it below.</p>
+            <p className="text-xs text-blue-800">A broadcast is still sending or scheduled. Wait for it to finish or stop it below.</p>
           )}
           <button
             type="button"
@@ -352,7 +406,7 @@ export default function BroadcastCard({
             disabled={!canSend}
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
           >
-            Send broadcast
+            {scheduled ? 'Schedule broadcast' : 'Send broadcast'}
           </button>
         </div>
       )}
@@ -368,7 +422,14 @@ export default function BroadcastCard({
           </div>
           <ul className="divide-y divide-gray-100 border border-gray-200 rounded-lg">
             {broadcasts.map((b) => {
-              const badge = STATUS_BADGE[b.status] || STATUS_BADGE.completed;
+              const waiting =
+                b.status === 'running' &&
+                b.sent + b.failed === 0 &&
+                !!b.firstSendAt &&
+                new Date(b.firstSendAt) > new Date();
+              const badge = waiting
+                ? { label: `Scheduled · ${formatTime(b.firstSendAt)}`, className: 'bg-amber-100 text-amber-800' }
+                : STATUS_BADGE[b.status] || STATUS_BADGE.completed;
               const pct = (n: number) => (b.total ? (n / b.total) * 100 : 0);
               return (
                 <li key={b.id} className="p-4 space-y-2">

@@ -4,6 +4,7 @@ import {
   ArrayMinSize,
   IsArray,
   IsBoolean,
+  IsDateString,
   IsIn,
   IsOptional,
   IsString,
@@ -82,6 +83,11 @@ class BroadcastPreviewDto {
   @IsString()
   @MaxLength(1000)
   message?: string;
+
+  // Empty = start right away
+  @IsOptional()
+  @IsDateString()
+  startAt?: string;
 }
 
 class CreateBroadcastDto extends BroadcastPreviewDto {
@@ -171,7 +177,7 @@ export class WhatsappController {
   async previewBroadcast(@Request() req: any, @Body() dto: BroadcastPreviewDto) {
     return {
       success: true,
-      data: await this.broadcastService.preview(req.user.tenantId, dto.classes, dto.onlyWelcomed ?? true, dto.message),
+      data: await this.broadcastService.preview(req.user.tenantId, dto.classes, dto.onlyWelcomed ?? true, dto.message, dto.startAt),
     };
   }
 
@@ -186,6 +192,7 @@ export class WhatsappController {
       message: dto.message,
       classes: dto.classes,
       onlyWelcomed: dto.onlyWelcomed ?? true,
+      startAt: dto.startAt,
     });
     return { success: true, data: broadcast };
   }
