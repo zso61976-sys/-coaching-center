@@ -4,8 +4,25 @@ import { Suspense, useState, useEffect, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../contexts/AuthContext';
 import LiveOverview from './LiveOverview';
+import StudentModal, { ModalSectionBlock } from './StudentModal';
 import { serverDateKey, serverMonthStartKey, serverWeekStartKey } from './serverDate';
 import * as XLSX from 'xlsx';
+
+const EMPTY_STUDENT_FORM = {
+  studentId: '',
+  name: '',
+  grade: '',
+  biometricId: '',
+  selectedSubjects: [] as string[],
+  selectedDevices: [] as string[],
+  feesPaid: 0,
+  feeDueDate: '',
+  discount: 0,
+  finalAmount: 0,
+  parentName: '',
+  parentPhone: '',
+  parentTelegramChatId: '',
+};
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL
   ? `${process.env.NEXT_PUBLIC_API_URL}/api`
@@ -215,21 +232,9 @@ function DashboardContent() {
   const [loading, setLoading] = useState(true);
   const [showStudentForm, setShowStudentForm] = useState(false);
   const [showSubjectForm, setShowSubjectForm] = useState(false);
-  const [formData, setFormData] = useState({
-    studentId: '',
-    name: '',
-    grade: '',
-    biometricId: '',
-    selectedSubjects: [] as string[],
-    selectedDevices: [] as string[],
-    feesPaid: 0,
-    feeDueDate: '',
-    discount: 0,
-    finalAmount: 0,
-    parentName: '',
-    parentPhone: '',
-    parentTelegramChatId: '',
-  });
+  const [formData, setFormData] = useState(EMPTY_STUDENT_FORM);
+  // The form as it was when the popup opened, to notice unsaved changes
+  const [studentFormSnapshot, setStudentFormSnapshot] = useState('');
   const [reportStartDate, setReportStartDate] = useState(serverDateKey());
   const [reportEndDate, setReportEndDate] = useState(serverDateKey());
   const [subjectForm, setSubjectForm] = useState({ code: '', name: '', fee: '', grade: '' });
@@ -1071,7 +1076,7 @@ function DashboardContent() {
       setStudentFeeData(feeData);
 
       setSuccess(`Student created! ID: ${formData.studentId}, Subjects: ${selectedSubjectNames.join(', ')}, Total Fee: Rs. ${calculateTotalFees()}`);
-      setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', discount: 0, finalAmount: 0, parentName: '', parentPhone: '', parentTelegramChatId: '' });
+      setFormData(EMPTY_STUDENT_FORM);
       setShowStudentForm(false);
       fetchStudents();
     } catch (err: any) {
@@ -1230,7 +1235,7 @@ function DashboardContent() {
     // Get primary parent info if exists
     const primaryParent = student.parents?.find(p => p.is_primary) || student.parents?.[0];
 
-    setFormData({
+    const next = {
       studentId: student.studentId,
       name: student.name,
       grade: student.grade,
@@ -1244,8 +1249,39 @@ function DashboardContent() {
       parentName: primaryParent?.full_name || '',
       parentPhone: primaryParent?.phone || '',
       parentTelegramChatId: primaryParent?.telegram_chat_id || '',
-    });
+    };
+    setFormData(next);
+    setStudentFormSnapshot(JSON.stringify(next));
+    setError('');
     setShowStudentForm(true);
+  };
+
+  const studentFormDirty = showStudentForm && JSON.stringify(formData) !== studentFormSnapshot;
+  const confirmDiscardStudentChanges = () =>
+    !studentFormDirty || window.confirm('You have unsaved changes. Discard them?');
+
+  const openNewStudent = () => {
+    setEditingStudent(null);
+    setFormData(EMPTY_STUDENT_FORM);
+    setStudentFormSnapshot(JSON.stringify(EMPTY_STUDENT_FORM));
+    setError('');
+    setShowStudentForm(true);
+  };
+
+  const closeStudentForm = () => {
+    if (!confirmDiscardStudentChanges()) return;
+    setShowStudentForm(false);
+    setEditingStudent(null);
+    setFormData(EMPTY_STUDENT_FORM);
+    setError('');
+  };
+
+  // Previous / Next in the popup follow the order of the students table
+  const editingIndex = editingStudent ? students.findIndex(s => s.id === editingStudent.id) : -1;
+  const goToStudent = (offset: number) => {
+    const target = students[editingIndex + offset];
+    if (!target || !confirmDiscardStudentChanges()) return;
+    handleEditStudent(target);
   };
 
   const handleUpdateStudent = async (e: React.FormEvent) => {
@@ -1300,7 +1336,7 @@ function DashboardContent() {
       ).filter(Boolean);
 
       setSuccess(`Student "${formData.name}" updated. Subjects: ${selectedSubjectNames.join(', ') || 'None'}, Fees Paid: Rs. ${formData.feesPaid}`);
-      setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', discount: 0, finalAmount: 0, parentName: '', parentPhone: '', parentTelegramChatId: '' });
+      setFormData(EMPTY_STUDENT_FORM);
       setEditingStudent(null);
       setShowStudentForm(false);
       fetchStudents();
@@ -1537,16 +1573,10 @@ function DashboardContent() {
           <div>
             <div className="mb-6 flex flex-wrap gap-3">
               <button
-                onClick={() => {
-                  setShowStudentForm(!showStudentForm);
-                  if (showStudentForm) {
-                    setEditingStudent(null);
-                    setFormData({ studentId: '', name: '', grade: '', biometricId: '', selectedSubjects: [] as string[], selectedDevices: [] as string[], feesPaid: 0, feeDueDate: '', discount: 0, finalAmount: 0, parentName: '', parentPhone: '', parentTelegramChatId: '' });
-                  }
-                }}
+                onClick={openNewStudent}
                 className="px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
               >
-                {showStudentForm ? 'Cancel' : '+ Add New Student'}
+                + Add New Student
               </button>
               <button
                 onClick={handleDownloadTemplate}
@@ -1668,9 +1698,24 @@ function DashboardContent() {
             )}
 
             {showStudentForm && (
-              <div className="bg-white p-6 rounded-xl shadow mb-6">
-                <h2 className="text-lg font-bold mb-4">{editingStudent ? 'Edit Student' : 'Register New Student'}</h2>
-                <form onSubmit={editingStudent ? handleUpdateStudent : handleStudentSubmit}>
+              <StudentModal
+                title={editingStudent ? `Edit: ${editingStudent.name}` : 'Register New Student'}
+                subtitle={editingStudent ? `Student ID ${editingStudent.studentId}${editingStudent.grade ? ` · ${editingStudent.grade}` : ''}` : undefined}
+                position={editingStudent && editingIndex >= 0 ? { index: editingIndex, total: students.length } : undefined}
+                onPrev={editingIndex > 0 ? () => goToStudent(-1) : undefined}
+                onNext={editingIndex >= 0 && editingIndex < students.length - 1 ? () => goToStudent(1) : undefined}
+                onClose={closeStudentForm}
+                onSubmit={editingStudent ? handleUpdateStudent : handleStudentSubmit}
+                submitLabel={editingStudent ? 'Save Changes' : 'Create Student'}
+                error={error}
+                sections={[
+                  { id: 'student-profile', label: 'Profile' },
+                  { id: 'student-parents', label: 'Parents' },
+                  { id: 'student-fees', label: 'Subjects & Fees' },
+                  ...(devices.length > 0 ? [{ id: 'student-devices', label: 'Devices' }] : []),
+                ]}
+              >
+                <ModalSectionBlock id="student-profile" title="Profile">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Student ID</label>
@@ -1726,7 +1771,8 @@ function DashboardContent() {
                       </p>
                     </div>
                   </div>
-
+                </ModalSectionBlock>
+                <ModalSectionBlock id="student-parents" title="Parents">
                   {/* Parent Information */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <div>
@@ -1769,7 +1815,8 @@ function DashboardContent() {
                       </p>
                     </div>
                   </div>
-
+                </ModalSectionBlock>
+                <ModalSectionBlock id="student-fees" title="Subjects & Fees">
                   {/* Subject Selection */}
                   <div className="mb-4">
                     <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -1808,48 +1855,6 @@ function DashboardContent() {
                       </div>
                     )}
                   </div>
-
-                  {/* Device Selection */}
-                  {devices.length > 0 && (
-                    <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        {editingStudent ? 'Enroll on Additional Devices' : 'Select Devices to Enroll On'}
-                      </label>
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                        {devices.filter(d => d.status === 'active').map(device => (
-                          <label
-                            key={device.id}
-                            className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
-                              formData.selectedDevices.includes(device.id)
-                                ? 'bg-purple-50 border-purple-500'
-                                : 'bg-white border-gray-300 hover:bg-gray-50'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={formData.selectedDevices.includes(device.id)}
-                              onChange={() => {
-                                const newDevices = formData.selectedDevices.includes(device.id)
-                                  ? formData.selectedDevices.filter(d => d !== device.id)
-                                  : [...formData.selectedDevices, device.id];
-                                setFormData({ ...formData, selectedDevices: newDevices });
-                              }}
-                              className="mr-3"
-                            />
-                            <div>
-                              <div className="font-medium">{device.name}</div>
-                              <div className="text-xs text-gray-500">{device.location} - {device.serialNumber}</div>
-                            </div>
-                          </label>
-                        ))}
-                      </div>
-                      {formData.selectedDevices.length === 0 && (
-                        <p className="text-sm text-yellow-600 mt-2">
-                          No devices selected - user will be enrolled on all active devices
-                        </p>
-                      )}
-                    </div>
-                  )}
 
                   {/* Total Fees & Discount */}
                   {formData.selectedSubjects.length > 0 && (
@@ -1970,15 +1975,51 @@ function DashboardContent() {
                       </div>
                     </div>
                   )}
-
-                  <button
-                    type="submit"
-                    className="px-6 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
-                  >
-                    {editingStudent ? 'Update Student' : 'Create Student'}
-                  </button>
-                </form>
-              </div>
+                </ModalSectionBlock>
+                {devices.length > 0 && (
+                <ModalSectionBlock id="student-devices" title="Devices">
+                  {/* Device Selection */}
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        {editingStudent ? 'Enroll on Additional Devices' : 'Select Devices to Enroll On'}
+                      </label>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        {devices.filter(d => d.status === 'active').map(device => (
+                          <label
+                            key={device.id}
+                            className={`flex items-center p-3 border rounded-lg cursor-pointer transition-colors ${
+                              formData.selectedDevices.includes(device.id)
+                                ? 'bg-purple-50 border-purple-500'
+                                : 'bg-white border-gray-300 hover:bg-gray-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={formData.selectedDevices.includes(device.id)}
+                              onChange={() => {
+                                const newDevices = formData.selectedDevices.includes(device.id)
+                                  ? formData.selectedDevices.filter(d => d !== device.id)
+                                  : [...formData.selectedDevices, device.id];
+                                setFormData({ ...formData, selectedDevices: newDevices });
+                              }}
+                              className="mr-3"
+                            />
+                            <div>
+                              <div className="font-medium">{device.name}</div>
+                              <div className="text-xs text-gray-500">{device.location} - {device.serialNumber}</div>
+                            </div>
+                          </label>
+                        ))}
+                      </div>
+                      {formData.selectedDevices.length === 0 && (
+                        <p className="text-sm text-yellow-600 mt-2">
+                          No devices selected - user will be enrolled on all active devices
+                        </p>
+                      )}
+                    </div>
+                </ModalSectionBlock>
+                )}
+              </StudentModal>
             )}
 
             {/* Students Table */}
@@ -2026,7 +2067,16 @@ function DashboardContent() {
 
                         return (
                           <tr key={student.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-4 font-medium">{student.studentId}</td>
+                            <td className="px-4 py-4 font-medium">
+                              <button
+                                type="button"
+                                onClick={() => handleEditStudent(student)}
+                                className="text-blue-700 hover:text-blue-900 hover:underline"
+                                title="Open student details"
+                              >
+                                {student.studentId}
+                              </button>
+                            </td>
                             <td className="px-4 py-4">{student.name}</td>
                             <td className="px-4 py-4">{student.grade}</td>
                             <td className="px-4 py-4">
