@@ -216,6 +216,12 @@ model Parent {
 | PUT | `/api/admin/schedules/:id` | Update schedule |
 | DELETE | `/api/admin/schedules/:id` | Delete schedule |
 
+### Classes
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/admin/classes` | The company's classes with how many students, teachers and schedules use each |
+| PUT | `/api/admin/classes` | Save the class list (`{ classes: string[] }`); a class still in use can't be removed |
+
 ### Users
 | Method | Endpoint | Description |
 |--------|----------|-------------|
