@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
-import { Inter } from 'next/font/google';
+import localFont from 'next/font/local';
 import './globals.css';
 import { Providers } from './providers';
 
-const inter = Inter({ subsets: ['latin'] });
+// Bundled with the app: the VPS build cannot always reach Google Fonts
+const inter = localFont({ src: './fonts/Inter-latin.woff2', weight: '100 900', display: 'swap' });
 
 export const metadata: Metadata = {
   title: 'Attendance Admin Portal',

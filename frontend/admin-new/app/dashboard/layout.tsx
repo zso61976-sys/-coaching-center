@@ -72,6 +72,22 @@ function Sidebar({ onNavigate }: { onNavigate: () => void }) {
         isActive: (path) => path.startsWith('/dashboard/users'),
       },
     ],
+    [
+      {
+        href: '/dashboard/about',
+        label: 'About',
+        icon: 'ℹ️',
+        show: true,
+        isActive: (path) => path.startsWith('/dashboard/about'),
+      },
+      {
+        href: '/dashboard/faq',
+        label: 'FAQ',
+        icon: '❓',
+        show: true,
+        isActive: (path) => path.startsWith('/dashboard/faq'),
+      },
+    ],
   ];
 
   return (
