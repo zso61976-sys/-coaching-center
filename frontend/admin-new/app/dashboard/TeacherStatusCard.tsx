@@ -13,10 +13,19 @@ export interface TeacherStatus {
 
 // Green and blue validated together (CVD ΔE 26.5, ≥3:1 on white); gray is the neutral "not arrived"
 const SEGMENTS = [
-  { key: 'inside', label: 'Present', color: '#008300', text: 'text-white' },
-  { key: 'left', label: 'Left', color: '#2a78d6', text: 'text-white' },
-  { key: 'absent', label: 'Not arrived', color: '#e5e7eb', text: 'text-gray-700' },
+  { key: 'inside', label: 'Present', color: '#008300' },
+  { key: 'left', label: 'Left', color: '#2a78d6' },
+  { key: 'absent', label: 'Not arrived', color: '#d1d5db' },
 ] as const;
+
+const PLOT_HEIGHT = 160;
+
+/** Whole-number axis: four equal steps of 1, 2, 5, 10, 20, 25 or 50 teachers */
+function axisScale(value: number) {
+  const raw = Math.ceil(value / 4);
+  const step = [1, 2, 5, 10, 20, 25, 50, 100].find((c) => c >= raw) || raw;
+  return { max: step * 4, ticks: [0, 1, 2, 3, 4].map((i) => i * step) };
+}
 
 const STATE_BADGE: Record<TeacherStatus['state'], string> = {
   inside: 'bg-green-100 text-green-800',
@@ -28,7 +37,7 @@ function formatTime(date: string | null) {
   return date ? new Date(date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
 }
 
-/** Today's teacher attendance: one stacked bar (present / left / not arrived) and the list */
+/** Today's teacher attendance: vertical bars (present / left / not arrived) and the list */
 export default function TeacherStatusCard({ teachers }: { teachers: TeacherStatus[] }) {
   const [hover, setHover] = useState<string | null>(null);
   const total = teachers.length;
@@ -37,6 +46,7 @@ export default function TeacherStatusCard({ teachers }: { teachers: TeacherStatu
     left: teachers.filter((t) => t.state === 'left').length,
     absent: teachers.filter((t) => t.state === 'absent').length,
   };
+  const { max, ticks } = axisScale(Math.max(1, total));
   const order = { inside: 0, left: 1, absent: 2 };
   const sorted = [...teachers].sort(
     (a, b) => order[a.state] - order[b.state] || a.full_name.localeCompare(b.full_name),
@@ -55,48 +65,72 @@ export default function TeacherStatusCard({ teachers }: { teachers: TeacherStatu
         <p className="text-sm text-gray-500">No active teachers.</p>
       ) : (
         <>
-          {/* Stacked bar */}
-          <div className="flex h-9 gap-[2px] rounded overflow-visible">
-            {SEGMENTS.filter((s) => counts[s.key] > 0).map((s, i, visible) => {
-              const value = counts[s.key];
-              const pct = (value / total) * 100;
-              return (
-                <div
-                  key={s.key}
-                  className={`relative flex items-center justify-center text-sm font-semibold ${s.text} ${
-                    i === 0 ? 'rounded-l' : ''
-                  } ${i === visible.length - 1 ? 'rounded-r' : ''}`}
-                  style={{
-                    width: `${pct}%`,
-                    minWidth: 28,
-                    backgroundColor: s.color,
-                    opacity: hover && hover !== s.key ? 0.6 : 1,
-                  }}
-                  onMouseEnter={() => setHover(s.key)}
-                  onMouseLeave={() => setHover(null)}
-                >
-                  {value}
-                  {hover === s.key && (
-                    <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap bg-gray-900 text-white text-xs font-normal rounded-md px-2.5 py-1.5 shadow-lg pointer-events-none">
-                      {s.label}: {value} of {total} teachers ({Math.round(pct)}%)
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Legend */}
-          <div className="flex flex-wrap gap-4 mt-3 text-sm text-gray-700">
-            {SEGMENTS.map((s) => (
-              <span key={s.key} className="flex items-center gap-1.5">
+          {/* Vertical bars */}
+          <div className="flex">
+            {/* Y axis */}
+            <div className="relative w-8 flex-shrink-0" style={{ height: PLOT_HEIGHT }}>
+              {ticks.map((t) => (
                 <span
-                  className="h-3 w-3 rounded-sm border border-gray-200"
-                  style={{ backgroundColor: s.color }}
-                />
-                {s.label} <span className="font-semibold">{counts[s.key]}</span>
-              </span>
-            ))}
+                  key={t}
+                  className="absolute right-2 text-xs text-gray-400"
+                  style={{ bottom: `${(t / max) * 100}%`, transform: 'translateY(50%)' }}
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+
+            <div className="flex-1 min-w-0">
+              {/* Plot */}
+              <div className="relative" style={{ height: PLOT_HEIGHT }}>
+                {ticks.map((t) => (
+                  <div
+                    key={t}
+                    className={`absolute left-0 right-0 border-t ${t === 0 ? 'border-gray-300' : 'border-gray-100'}`}
+                    style={{ bottom: `${(t / max) * 100}%` }}
+                  />
+                ))}
+                <div className="absolute inset-0 flex items-end justify-around">
+                  {SEGMENTS.map((s) => {
+                    const value = counts[s.key];
+                    const pct = Math.round((value / total) * 100);
+                    return (
+                      <div
+                        key={s.key}
+                        className="relative flex flex-col items-center justify-end h-full w-12 sm:w-16 cursor-default"
+                        onMouseEnter={() => setHover(s.key)}
+                        onMouseLeave={() => setHover(null)}
+                      >
+                        <span className="text-sm font-semibold text-gray-700 mb-1">{value}</span>
+                        <div
+                          className="w-full rounded-t transition-opacity"
+                          style={{
+                            height: `${(value / max) * 100}%`,
+                            minHeight: value > 0 ? 2 : 0,
+                            backgroundColor: s.color,
+                            opacity: hover && hover !== s.key ? 0.55 : 1,
+                          }}
+                        />
+                        {hover === s.key && (
+                          <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 z-10 whitespace-nowrap bg-gray-900 text-white text-xs rounded-md px-2.5 py-1.5 shadow-lg pointer-events-none">
+                            {s.label}: {value} of {total} teachers ({pct}%)
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* X axis labels */}
+              <div className="flex justify-around mt-2">
+                {SEGMENTS.map((s) => (
+                  <p key={s.key} className="w-20 text-center text-sm font-medium text-gray-800">
+                    {s.label}
+                  </p>
+                ))}
+              </div>
+            </div>
           </div>
 
           {/* Teacher list */}
