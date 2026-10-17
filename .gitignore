@@ -62,3 +62,6 @@ D:ClaudeCochingcenterbackendprismaschema.prisma
 
 # Miscellaneous temp files
 NDH6SA~M
+
+# Claude Code instructions (contain VPS login details)
+CLAUDE.md
