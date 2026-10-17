@@ -208,6 +208,39 @@ const TAB_MODULES: Record<Exclude<DashboardTab, 'overview'>, string> = {
   reports: 'reports',
 };
 
+interface WhatsappNumberProblem {
+  parentId: string;
+  parentName: string;
+  phone: string;
+  problem: 'invalid' | 'not_on_whatsapp';
+  students: { id: string; fullName: string; grade: string | null }[];
+}
+
+const WHATSAPP_PROBLEM_LABELS: Record<WhatsappNumberProblem['problem'], string> = {
+  invalid: 'number is wrong',
+  not_on_whatsapp: 'not on WhatsApp',
+};
+
+/** Yellow warning listing parent numbers that cannot receive WhatsApp messages */
+function WhatsappProblemsWarning({ problems }: { problems: WhatsappNumberProblem[] }) {
+  if (problems.length === 0) return null;
+  return (
+    <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3">
+      <p className="font-medium text-yellow-800 mb-1">
+        ⚠️ {problems.length} parent number(s) cannot receive WhatsApp messages:
+      </p>
+      <div className="max-h-40 overflow-y-auto">
+        {problems.map((p) => (
+          <p key={p.parentId} className="text-yellow-800 text-sm">
+            {p.students.map((s) => s.fullName).join(', ')} – {p.parentName}, {p.phone}: {WHATSAPP_PROBLEM_LABELS[p.problem]}
+          </p>
+        ))}
+      </div>
+      <p className="text-yellow-700 text-xs mt-1">Fix these numbers by editing the student. The full list is on the WhatsApp page.</p>
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   return (
     <Suspense fallback={<div className="text-gray-600">Loading...</div>}>
@@ -306,7 +339,13 @@ function DashboardContent() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importData, setImportData] = useState<Array<{ student_code: string; full_name: string; grade?: string; phone?: string; parent_name?: string; parent_phone?: string; telegram_chat_id?: string }>>([]);
   const [importErrors, setImportErrors] = useState<string[]>([]);
-  const [importResult, setImportResult] = useState<{ created: number; errors: Array<{ row: number; studentCode: string; message: string }> } | null>(null);
+  const [importResult, setImportResult] = useState<{
+    created: number;
+    errors: Array<{ row: number; studentCode: string; message: string }>;
+    whatsappProblems?: WhatsappNumberProblem[];
+  } | null>(null);
+  // Parent numbers of a newly added student that are wrong or not on WhatsApp
+  const [whatsappWarning, setWhatsappWarning] = useState<WhatsappNumberProblem[]>([]);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1024,6 +1063,7 @@ function DashboardContent() {
   const handleStudentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setWhatsappWarning([]);
     setSuccess('');
 
     if (formData.selectedSubjects.length === 0) {
@@ -1079,6 +1119,7 @@ function DashboardContent() {
       setStudentFeeData(feeData);
 
       setSuccess(`Student created! ID: ${formData.studentId}, Subjects: ${selectedSubjectNames.join(', ')}, Total Fee: Rs. ${calculateTotalFees()}`);
+      setWhatsappWarning(data.whatsappProblems || []);
       setFormData(EMPTY_STUDENT_FORM);
       setShowStudentForm(false);
       fetchStudents();
@@ -1610,6 +1651,18 @@ function DashboardContent() {
         {success && (
           <div className="bg-green-100 text-green-700 p-4 rounded-lg mb-4">{success}</div>
         )}
+        {whatsappWarning.length > 0 && (
+          <div className="mb-4 relative">
+            <WhatsappProblemsWarning problems={whatsappWarning} />
+            <button
+              onClick={() => setWhatsappWarning([])}
+              className="absolute top-2 right-3 text-yellow-700 hover:text-yellow-900"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Students Tab */}
         {activeTab === 'students' && !noAccess && (
@@ -1723,6 +1776,11 @@ function DashboardContent() {
                                 Row {err.row}: {err.studentCode} - {err.message}
                               </p>
                             ))}
+                          </div>
+                        )}
+                        {importResult.whatsappProblems && importResult.whatsappProblems.length > 0 && (
+                          <div className="mt-3">
+                            <WhatsappProblemsWarning problems={importResult.whatsappProblems} />
                           </div>
                         )}
                       </div>

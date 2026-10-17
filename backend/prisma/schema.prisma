@@ -100,6 +100,10 @@ model Parent {
   // WhatsApp SIM this parent is assigned to, and the number the welcome message went to
   whatsappAccountId     String?   @map("whatsapp_account_id") @db.Uuid
   whatsappWelcomedPhone String?   @map("whatsapp_welcomed_phone") @db.VarChar(30)
+  // Result of checking the mobile on WhatsApp ('ok', 'invalid', 'not_on_whatsapp') and the number checked
+  whatsappCheck         String?   @map("whatsapp_check") @db.VarChar(20)
+  whatsappCheckedPhone  String?   @map("whatsapp_checked_phone") @db.VarChar(20)
+  whatsappCheckedAt     DateTime? @map("whatsapp_checked_at")
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
 

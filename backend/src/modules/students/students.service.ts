@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import * as bcrypt from 'bcrypt';
-import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { NumberProblem, WhatsappService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class StudentsService {
@@ -123,8 +123,14 @@ export class StudentsService {
 
     // WhatsApp welcome to the parents (asks them to save the number)
     await this.whatsappService.sendWelcome(data.tenantId, student.id);
+    this.whatsappService.saveContacts(data.tenantId, student.id);
 
-    return this.findById(student.id, data.tenantId);
+    // Parent numbers that are wrong or not on WhatsApp, shown as a warning
+    const whatsappProblems = await this.whatsappService.checkParentNumbers(data.tenantId, {
+      students: { some: { studentId: student.id } },
+    });
+
+    return { ...(await this.findById(student.id, data.tenantId)), whatsappProblems };
   }
 
   async bulkCreate(tenantId: string, branchId: string, students: Array<{
@@ -136,10 +142,16 @@ export class StudentsService {
     parentPhone?: string;
     telegramChatId?: string;
   }>, createdBy?: string) {
-    const results: { created: number; errors: Array<{ row: number; studentCode: string; message: string }> } = {
+    const results: {
+      created: number;
+      errors: Array<{ row: number; studentCode: string; message: string }>;
+      whatsappProblems: NumberProblem[];
+    } = {
       created: 0,
       errors: [],
+      whatsappProblems: [],
     };
+    const createdIds: string[] = [];
 
     // Get the starting attendance ID once
     let nextAttendanceId = parseInt(await this.generateAttendanceId(tenantId));
@@ -204,11 +216,20 @@ export class StudentsService {
         await this.autoEnrollToBiometricDevices(tenantId, student.id, attendanceId, s.fullName);
 
         await this.whatsappService.sendWelcome(tenantId, student.id);
+        this.whatsappService.saveContacts(tenantId, student.id);
 
+        createdIds.push(student.id);
         results.created++;
       } catch (error: any) {
         results.errors.push({ row: i + 2, studentCode: s.studentCode || '', message: error.message || 'Unknown error' });
       }
+    }
+
+    // Parent numbers that are wrong or not on WhatsApp, shown after the import
+    if (createdIds.length > 0) {
+      results.whatsappProblems = await this.whatsappService.checkParentNumbers(tenantId, {
+        students: { some: { studentId: { in: createdIds } } },
+      });
     }
 
     return { success: true, data: results };
@@ -520,6 +541,9 @@ export class StudentsService {
 
     // WhatsApp welcome if a parent mobile was added or changed (not sent again otherwise)
     await this.whatsappService.sendWelcome(tenantId, id);
+    this.whatsappService.saveContacts(tenantId, id);
+    // Re-check edited numbers in the background, so a fixed number leaves the problem list
+    this.whatsappService.checkParentNumbers(tenantId, { students: { some: { studentId: id } } });
 
     return this.findById(id, tenantId);
   }

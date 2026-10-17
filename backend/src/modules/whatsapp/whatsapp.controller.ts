@@ -155,6 +155,21 @@ export class WhatsappController {
     return this.whatsappService.sendPendingWelcomes(req.user.tenantId);
   }
 
+  @Get('number-problems')
+  async getNumberProblems(@Request() req: any) {
+    return { success: true, data: await this.whatsappService.getNumberProblems(req.user.tenantId) };
+  }
+
+  @Post('check-numbers')
+  async checkAllNumbers(@Request() req: any) {
+    return this.whatsappService.checkAllNumbers(req.user.tenantId);
+  }
+
+  @Post('save-contacts')
+  async saveAllContacts(@Request() req: any) {
+    return this.whatsappService.saveAllContacts(req.user.tenantId);
+  }
+
   @Put('settings')
   async updateSettings(@Request() req: any, @Body() dto: UpdateWhatsappSettingsDto) {
     return {

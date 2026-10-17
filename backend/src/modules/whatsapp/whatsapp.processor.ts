@@ -21,7 +21,7 @@ export class WhatsappProcessor extends WorkerHost {
     // A stopped broadcast leaves its unsent messages cancelled
     const current = await this.prisma.whatsappMessageLog.findUnique({
       where: { id: logId },
-      select: { status: true },
+      select: { status: true, parentId: true },
     });
     if (!current || current.status === 'cancelled') return;
 
@@ -38,6 +38,8 @@ export class WhatsappProcessor extends WorkerHost {
           accountId: result.accountId,
         },
       });
+      // The parent's number works; a fixed number drops off the problem list
+      if (current.parentId) await this.whatsappService.recordNumberCheck(current.parentId, 'ok');
     } catch (error: any) {
       const message = error?.message || 'Unknown error';
       const finalAttempt = job.attemptsMade + 1 >= (job.opts.attempts || 1);
@@ -47,6 +49,9 @@ export class WhatsappProcessor extends WorkerHost {
         where: { id: logId },
         data: { status: finalAttempt || permanent ? 'failed' : 'retry', errorText: message },
       });
+      if (permanent && current.parentId) {
+        await this.whatsappService.recordNumberCheck(current.parentId, 'not_on_whatsapp');
+      }
 
       if (!permanent) throw error;
     }

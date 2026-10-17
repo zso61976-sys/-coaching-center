@@ -48,6 +48,58 @@ const JOB_OPTIONS = {
   removeOnComplete: true,
 };
 
+// Welcome messages go to numbers that have not saved ours yet, so they are spaced
+// out (an Excel import of 100 students ≈ 75 minutes) and wait behind attendance
+// messages (no priority) but still go before broadcasts (priority 10)
+const WELCOME_GAP_MS = 45 * 1000;
+const WELCOME_JITTER = 0.3;
+const WELCOME_JOB_OPTIONS = { ...JOB_OPTIONS, priority: 5 };
+
+export type NumberCheck = 'ok' | 'invalid' | 'not_on_whatsapp';
+
+export interface NumberProblem {
+  parentId: string;
+  parentName: string;
+  phone: string;
+  problem: 'invalid' | 'not_on_whatsapp';
+  students: { id: string; fullName: string; grade: string | null }[];
+}
+
+// Numbers are looked up on WhatsApp this many at a time
+const NUMBER_CHECK_BATCH = 50;
+
+const PROBLEM_PARENT_SELECT = {
+  id: true,
+  fullName: true,
+  phone: true,
+  students: { select: { student: { select: { id: true, fullName: true, grade: true } } } },
+} as const;
+
+function toProblem(
+  p: { id: string; fullName: string; phone: string; students: { student: NumberProblem['students'][number] }[] },
+  problem: NumberProblem['problem'],
+): NumberProblem {
+  return {
+    parentId: p.id,
+    parentName: p.fullName,
+    phone: p.phone,
+    problem,
+    students: p.students.map((s) => s.student),
+  };
+}
+
+// Parents are saved as contacts on their SIM one at a time, this far apart
+const CONTACT_GAP_MS = 2000;
+const CONTACT_NAME_MAX = 60;
+
+/** Contact name for a parent, e.g. "Ahmed Ali (Parent of Sara, Omar)" */
+function contactName(parentName: string, studentNames: string[]) {
+  const name = (parentName || '').trim();
+  const children = studentNames.filter(Boolean).join(', ');
+  const full = !children || name.startsWith('Parent of') ? name || `Parent of ${children}` : `${name} (Parent of ${children})`;
+  return full.length > CONTACT_NAME_MAX ? `${full.slice(0, CONTACT_NAME_MAX - 1)}…` : full;
+}
+
 /** Small in-memory TTL cache matching Baileys' CacheStore interface */
 class MemoryCache {
   private store = new Map<string, { value: any; expires: number }>();
@@ -119,6 +171,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private sentMessages = new MemoryCache(24 * 60 * 60 * 1000);
   /** One rebalance at a time per company */
   private rebalanceLocks = new Map<string, Promise<unknown>>();
+  /** When the next welcome message may go out, per company */
+  private nextWelcomeAt = new Map<string, number>();
+  /** Contact saves waiting to run, chained per SIM */
+  private contactChains = new Map<string, Promise<unknown>>();
 
   constructor(
     private prisma: PrismaService,
@@ -664,7 +720,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     attendanceId?: string;
     messageType: string;
     text: string;
-  }) {
+  }, jobOptions: Record<string, any> = JOB_OPTIONS) {
     const accountId = data.phone ? await this.assignAccount(data.tenantId, data.parent) : null;
 
     const log = await this.prisma.whatsappMessageLog.create({
@@ -683,14 +739,26 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         errorText: data.phone ? null : 'Invalid phone number or missing country code',
       },
     });
-    if (!data.phone) return false;
+    if (!data.phone) {
+      await this.recordNumberCheck(data.parent.id, 'invalid');
+      return false;
+    }
 
     await this.whatsappQueue.add(
       'send-message',
       { logId: log.id, tenantId: data.tenantId, accountId, phone: data.phone, text: data.text },
-      JOB_OPTIONS,
+      jobOptions,
     );
     return true;
+  }
+
+  /** Delay for the next welcome: the first goes at once, the rest about WELCOME_GAP_MS apart */
+  private nextWelcomeDelay(tenantId: string) {
+    const now = Date.now();
+    const sendAt = Math.max(now, this.nextWelcomeAt.get(tenantId) || 0);
+    const gap = WELCOME_GAP_MS * (1 + (Math.random() * 2 - 1) * WELCOME_JITTER);
+    this.nextWelcomeAt.set(tenantId, sendAt + gap);
+    return sendAt - now;
   }
 
   /** Queue check-in / check-out messages to every parent of the student. Never throws. */
@@ -770,7 +838,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           student,
           messageType: 'welcome',
           text: this.formatWelcome(parent.fullName, student.fullName, tenant?.name || 'our center'),
-        });
+        }, { ...WELCOME_JOB_OPTIONS, delay: this.nextWelcomeDelay(tenantId) });
         if (sent) queued += 1;
       }
       return queued;
@@ -797,6 +865,192 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       queued += await this.sendWelcome(tenantId, student.id);
     }
     return { success: true, queued };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Checking parent numbers
+  // ---------------------------------------------------------------------------
+
+  /** Remember the result for a parent's current number (from a check or a sent message) */
+  async recordNumberCheck(parentId: string, check: NumberCheck) {
+    const parent = await this.prisma.parent.findUnique({ where: { id: parentId }, select: { phone: true } });
+    if (!parent) return;
+    await this.prisma.parent.update({
+      where: { id: parentId },
+      data: { whatsappCheck: check, whatsappCheckedPhone: parent.phone, whatsappCheckedAt: new Date() },
+    });
+  }
+
+  /**
+   * Check the matching parents' numbers on WhatsApp and remember the results.
+   * Returns the numbers with a problem. Never throws.
+   */
+  async checkParentNumbers(tenantId: string, where: Record<string, any>): Promise<NumberProblem[]> {
+    try {
+      const settings = await this.getSettings(tenantId);
+      if (!settings.enabled) return [];
+
+      const parents = await this.prisma.parent.findMany({
+        where: { ...where, tenantId, phone: { not: '' } },
+        select: PROBLEM_PARENT_SELECT,
+      });
+
+      const checks = new Map<string, NumberCheck>();
+      const lookups: { id: string; phone: string }[] = [];
+      for (const p of parents) {
+        const phone = normalizePhone(p.phone, settings.countryCode);
+        if (phone) lookups.push({ id: p.id, phone });
+        else checks.set(p.id, 'invalid');
+      }
+
+      // Without a connected SIM only badly written numbers can be found
+      const session = [...this.sessions.values()].find(
+        (s) => s.tenantId === tenantId && s.status === 'connected',
+      );
+      if (session) {
+        for (let i = 0; i < lookups.length; i += NUMBER_CHECK_BATCH) {
+          const batch = lookups.slice(i, i + NUMBER_CHECK_BATCH);
+          for (const [id, exists] of await this.lookupNumbers(session, batch)) {
+            checks.set(id, exists ? 'ok' : 'not_on_whatsapp');
+          }
+        }
+      }
+
+      const now = new Date();
+      for (const p of parents) {
+        const check = checks.get(p.id);
+        if (!check) continue;
+        await this.prisma.parent.update({
+          where: { id: p.id },
+          data: { whatsappCheck: check, whatsappCheckedPhone: p.phone, whatsappCheckedAt: now },
+        });
+      }
+
+      return parents
+        .filter((p) => checks.get(p.id) === 'invalid' || checks.get(p.id) === 'not_on_whatsapp')
+        .map((p) => toProblem(p, checks.get(p.id) as NumberProblem['problem']));
+    } catch (err: any) {
+      this.logger.error(`Failed to check WhatsApp numbers: ${err.message}`);
+      return [];
+    }
+  }
+
+  /** Which numbers are on WhatsApp, by parent id. Numbers whose lookup failed are left out. */
+  private async lookupNumbers(session: Session, batch: { id: string; phone: string }[]) {
+    const found = new Map<string, boolean>();
+    try {
+      const results: { jid: string; exists: boolean }[] =
+        (await session.sock.onWhatsApp(...batch.map((b) => b.phone))) || [];
+      // WhatsApp only answers for numbers that exist; match them back by number
+      if (results.every((r) => r.jid?.endsWith('@s.whatsapp.net'))) {
+        const existing = new Set(results.filter((r) => r.exists).map((r) => r.jid.split('@')[0].split(':')[0]));
+        for (const b of batch) found.set(b.id, existing.has(b.phone));
+        return found;
+      }
+    } catch (err: any) {
+      this.logger.warn(`WhatsApp number lookup failed, checking one by one: ${err.message}`);
+    }
+    // The batch answer could not be matched back to the numbers: ask one at a time
+    for (const b of batch) {
+      try {
+        const [result] = (await session.sock.onWhatsApp(b.phone)) || [];
+        found.set(b.id, !!result?.exists);
+      } catch {
+        // unknown for now
+      }
+    }
+    return found;
+  }
+
+  /** Parents whose current number is badly written or was found not to be on WhatsApp */
+  async getNumberProblems(tenantId: string) {
+    const settings = await this.getSettings(tenantId);
+    const parents = await this.prisma.parent.findMany({
+      where: { tenantId, phone: { not: '' } },
+      orderBy: { fullName: 'asc' },
+      select: { ...PROBLEM_PARENT_SELECT, whatsappCheck: true, whatsappCheckedPhone: true },
+    });
+
+    const problems: NumberProblem[] = [];
+    let unchecked = 0;
+    for (const p of parents) {
+      const checkedNow = p.whatsappCheckedPhone === p.phone;
+      if (!normalizePhone(p.phone, settings.countryCode)) problems.push(toProblem(p, 'invalid'));
+      else if (checkedNow && p.whatsappCheck === 'not_on_whatsapp') problems.push(toProblem(p, 'not_on_whatsapp'));
+      else if (!checkedNow) unchecked += 1;
+    }
+    return { problems, unchecked, total: parents.length };
+  }
+
+  /** Check every parent number of the company */
+  async checkAllNumbers(tenantId: string) {
+    const settings = await this.getSettings(tenantId);
+    if (!settings.enabled) throw new BadRequestException('Turn on WhatsApp notifications first');
+    const connected = [...this.sessions.values()].some((s) => s.tenantId === tenantId && s.status === 'connected');
+    if (!connected) throw new BadRequestException('Connect at least one WhatsApp number first');
+    await this.checkParentNumbers(tenantId, {});
+    return { success: true, data: await this.getNumberProblems(tenantId) };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Saving parents as contacts on the SIMs
+  // ---------------------------------------------------------------------------
+
+  /** Save the parents of a student as contacts on their SIMs. Runs in the background, never throws. */
+  saveContacts(tenantId: string, studentId: string) {
+    this.queueContacts(tenantId, { students: { some: { studentId } } }).catch((err) =>
+      this.logger.error(`Failed to queue WhatsApp contacts: ${err.message}`),
+    );
+  }
+
+  /** Save every parent of the company as a contact on the SIM they are assigned to */
+  async saveAllContacts(tenantId: string) {
+    const settings = await this.getSettings(tenantId);
+    if (!settings.enabled) throw new BadRequestException('Turn on WhatsApp notifications first');
+    if ((await this.linkedAccountIds(tenantId)).length === 0) {
+      throw new BadRequestException('Link at least one balancing WhatsApp number first');
+    }
+    return { success: true, queued: await this.queueContacts(tenantId, {}) };
+  }
+
+  /** Queue contact saves for the matching parents, one SIM at a time, CONTACT_GAP_MS apart */
+  private async queueContacts(tenantId: string, where: Record<string, any>) {
+    const settings = await this.getSettings(tenantId);
+    if (!settings.enabled) return 0;
+
+    const parents = await this.prisma.parent.findMany({
+      where: { ...where, tenantId, phone: { not: '' } },
+      orderBy: { createdAt: 'asc' },
+      include: { students: { include: { student: { select: { fullName: true } } } } },
+    });
+
+    let queued = 0;
+    for (const parent of parents) {
+      const phone = normalizePhone(parent.phone, settings.countryCode);
+      const accountId = phone ? await this.assignAccount(tenantId, parent) : null;
+      if (!phone || !accountId) continue;
+
+      const name = contactName(parent.fullName, parent.students.map((s) => s.student.fullName));
+      const previous = this.contactChains.get(accountId) || Promise.resolve();
+      const run = previous
+        .then(() => this.saveContact(accountId, phone, name))
+        .catch((err) => this.logger.warn(`Could not save contact ${phone} on SIM ${accountId}: ${err.message}`))
+        .then(() => new Promise((resolve) => setTimeout(resolve, CONTACT_GAP_MS)));
+      this.contactChains.set(accountId, run);
+      queued += 1;
+    }
+    return queued;
+  }
+
+  private async saveContact(accountId: string, phone: string, name: string) {
+    const session = this.sessions.get(accountId);
+    if (session?.status !== 'connected') throw new Error('SIM is not connected');
+    await session.sock.addOrEditContact(`${phone}@s.whatsapp.net`, {
+      fullName: name,
+      firstName: name,
+      // Also put it in the phone's own address book, not only in WhatsApp
+      saveOnPrimaryAddressbook: true,
+    });
   }
 
   private formatWelcome(parentName: string, studentName: string, companyName: string) {

@@ -45,6 +45,25 @@ interface MessageLog {
   createdAt: string;
 }
 
+interface NumberProblem {
+  parentId: string;
+  parentName: string;
+  phone: string;
+  problem: 'invalid' | 'not_on_whatsapp';
+  students: { id: string; fullName: string; grade: string | null }[];
+}
+
+interface NumberProblems {
+  problems: NumberProblem[];
+  unchecked: number;
+  total: number;
+}
+
+const PROBLEM_LABELS: Record<NumberProblem['problem'], string> = {
+  invalid: 'Number is wrong',
+  not_on_whatsapp: 'Not on WhatsApp',
+};
+
 const TIME_ZONES = [
   { value: 'Asia/Dubai', label: 'UAE / Oman (GMT+4)' },
   { value: 'Asia/Karachi', label: 'Pakistan (GMT+5)' },
@@ -72,6 +91,7 @@ export default function WhatsappPage() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [settingsForm, setSettingsForm] = useState<Settings | null>(null);
   const [logs, setLogs] = useState<MessageLog[]>([]);
+  const [numberProblems, setNumberProblems] = useState<NumberProblems | null>(null);
   const [testPhone, setTestPhone] = useState('');
   const [testAccountId, setTestAccountId] = useState('');
   const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
@@ -119,10 +139,21 @@ export default function WhatsappPage() {
     }
   }, [token, request]);
 
+  const loadNumberProblems = useCallback(async () => {
+    if (!token) return;
+    try {
+      const json = await request('/number-problems');
+      setNumberProblems(json.data);
+    } catch (err) {
+      console.error('Failed to load WhatsApp number problems:', err);
+    }
+  }, [token, request]);
+
   useEffect(() => {
     loadStatus();
     loadLogs();
-  }, [loadStatus, loadLogs]);
+    loadNumberProblems();
+  }, [loadStatus, loadLogs, loadNumberProblems]);
 
   // Poll while any SIM shows a QR code or is connecting
   const waiting = accounts?.some((a) => a.status === 'qr' || a.status === 'connecting');
@@ -234,6 +265,30 @@ export default function WhatsappPage() {
         text: json.queued
           ? `Welcome message queued for ${json.queued} parent(s)`
           : 'All parents have already received the welcome message',
+      });
+    });
+
+  const handleCheckNumbers = () =>
+    run(async () => {
+      const json = await request('/check-numbers', 'POST');
+      setNumberProblems(json.data);
+      const count = json.data.problems.length;
+      setMessage({
+        ok: count === 0,
+        text: count
+          ? `${count} parent number(s) have a problem. See the list below.`
+          : `All ${json.data.total} parent numbers are on WhatsApp`,
+      });
+    });
+
+  const handleSaveContacts = () =>
+    run(async () => {
+      const json = await request('/save-contacts', 'POST');
+      setMessage({
+        ok: true,
+        text: json.queued
+          ? `Saving ${json.queued} parent(s) as contacts on your SIMs. This runs in the background.`
+          : 'No parents with a mobile number to save',
       });
     });
 
@@ -539,7 +594,7 @@ export default function WhatsappPage() {
             <h3 className="text-lg font-semibold text-gray-800">Welcome existing parents</h3>
             <p className="text-sm text-gray-600">
               Send the welcome message to every parent who has not received it yet. Messages go out
-              slowly, one every few seconds.
+              slowly, about one every 45 seconds.
             </p>
             <button
               onClick={handlePendingWelcomes}
@@ -547,6 +602,22 @@ export default function WhatsappPage() {
               className="px-4 py-2 border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
             >
               Send welcome to remaining parents
+            </button>
+          </div>
+
+          {/* Save parents as contacts */}
+          <div className="bg-white rounded-xl shadow-sm p-6 space-y-3">
+            <h3 className="text-lg font-semibold text-gray-800">Save parents as contacts</h3>
+            <p className="text-sm text-gray-600">
+              Save every parent with their name, e.g. &quot;Ahmed Ali (Parent of Sara)&quot;, in the contacts
+              of the SIM that messages them. New students are saved automatically.
+            </p>
+            <button
+              onClick={handleSaveContacts}
+              disabled={busy || connectedCount === 0}
+              className="px-4 py-2 border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
+            >
+              Save all parents as contacts
             </button>
           </div>
 
@@ -584,6 +655,74 @@ export default function WhatsappPage() {
               </button>
             </div>
           </form>
+        </div>
+      </div>
+
+      {/* Parent numbers with a problem */}
+      <div className="bg-white rounded-xl shadow-sm">
+        <div className="p-6 border-b border-gray-200 flex flex-wrap gap-3 justify-between items-start">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800">
+              Problem numbers
+              {numberProblems && numberProblems.problems.length > 0 && (
+                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                  {numberProblems.problems.length}
+                </span>
+              )}
+            </h3>
+            <p className="text-sm text-gray-600 mt-1">
+              These parents cannot receive WhatsApp messages. Fix their number on the Students page.
+              {numberProblems && numberProblems.unchecked > 0 && (
+                <> {numberProblems.unchecked} number(s) have not been checked yet.</>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={handleCheckNumbers}
+            disabled={busy || connectedCount === 0}
+            className="px-4 py-2 border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
+          >
+            Check all numbers
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                {['Student', 'Class', 'Parent', 'Number', 'Problem'].map((h) => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200">
+              {numberProblems?.problems.map((p) => (
+                <tr key={p.parentId}>
+                  <td className="px-4 py-3 text-gray-900">
+                    {p.students.map((s) => s.fullName).join(', ') || '—'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {p.students.map((s) => s.grade).filter(Boolean).join(', ') || '—'}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">{p.parentName}</td>
+                  <td className="px-4 py-3 font-mono text-gray-600">{p.phone}</td>
+                  <td className="px-4 py-3">
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                      {PROBLEM_LABELS[p.problem]}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+              {numberProblems && numberProblems.problems.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8 text-center text-gray-500">
+                    No problem numbers found.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 
