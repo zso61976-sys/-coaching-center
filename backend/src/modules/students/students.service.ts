@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import * as bcrypt from 'bcrypt';
-import { NumberProblem, WhatsappService } from '../whatsapp/whatsapp.service';
+import { NumberProblem, numberStatus, WhatsappService } from '../whatsapp/whatsapp.service';
 
 @Injectable()
 export class StudentsService {
@@ -334,7 +334,7 @@ export class StudentsService {
       ];
     }
 
-    const [students, total] = await Promise.all([
+    const [students, total, whatsappSettings] = await Promise.all([
       this.prisma.student.findMany({
         where,
         skip,
@@ -354,6 +354,7 @@ export class StudentsService {
         orderBy: { fullName: 'asc' },
       }),
       this.prisma.student.count({ where }),
+      this.whatsappService.getSettings(tenantId),
     ]);
 
     return {
@@ -378,6 +379,7 @@ export class StudentsService {
             is_primary: sp.isPrimary,
             telegram_connected: !!sp.parent.telegramChatId,
             telegram_chat_id: sp.parent.telegramChatId || null,
+            whatsapp: numberStatus(sp.parent, whatsappSettings.countryCode),
           })),
         })),
         pagination: {

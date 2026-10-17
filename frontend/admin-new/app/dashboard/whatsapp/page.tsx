@@ -268,19 +268,6 @@ export default function WhatsappPage() {
       });
     });
 
-  const handleCheckNumbers = () =>
-    run(async () => {
-      const json = await request('/check-numbers', 'POST');
-      setNumberProblems(json.data);
-      const count = json.data.problems.length;
-      setMessage({
-        ok: count === 0,
-        text: count
-          ? `${count} parent number(s) have a problem. See the list below.`
-          : `All ${json.data.total} parent numbers are on WhatsApp`,
-      });
-    });
-
   const handleSaveContacts = () =>
     run(async () => {
       const json = await request('/save-contacts', 'POST');
@@ -672,17 +659,14 @@ export default function WhatsappPage() {
             </h3>
             <p className="text-sm text-gray-600 mt-1">
               These parents cannot receive WhatsApp messages. Fix their number on the Students page.
+              Numbers are checked automatically when they are added or changed.
               {numberProblems && numberProblems.unchecked > 0 && (
-                <> {numberProblems.unchecked} number(s) have not been checked yet.</>
+                <> {numberProblems.unchecked} number(s) are waiting to be checked.</>
               )}
             </p>
           </div>
-          <button
-            onClick={handleCheckNumbers}
-            disabled={busy || connectedCount === 0}
-            className="px-4 py-2 border border-green-300 text-green-700 rounded-lg hover:bg-green-50 transition-colors disabled:opacity-50"
-          >
-            Check all numbers
+          <button onClick={loadNumberProblems} className="text-sm text-indigo-600 hover:text-indigo-800">
+            Refresh
           </button>
         </div>
         <div className="overflow-x-auto">

@@ -39,6 +39,7 @@ interface Parent {
   is_primary: boolean;
   telegram_connected: boolean;
   telegram_chat_id?: string;
+  whatsapp?: { status: 'ok' | 'unchecked' | 'missing' | 'problem'; problem?: 'invalid' | 'not_on_whatsapp' };
 }
 
 interface Student {
@@ -220,6 +221,25 @@ const WHATSAPP_PROBLEM_LABELS: Record<WhatsappNumberProblem['problem'], string> 
   invalid: 'number is wrong',
   not_on_whatsapp: 'not on WhatsApp',
 };
+
+// Dot in the WhatsApp column of the student list, by number status or problem
+const WHATSAPP_DOTS: Record<string, { className: string; label: string }> = {
+  ok: { className: 'bg-green-500', label: 'On WhatsApp' },
+  unchecked: { className: 'bg-gray-300', label: 'Checking…' },
+  missing: { className: 'bg-orange-400', label: 'No number' },
+  invalid: { className: 'bg-red-500', label: 'Number is wrong' },
+  not_on_whatsapp: { className: 'bg-red-500', label: 'Not on WhatsApp' },
+};
+
+function WhatsappDot({ status, title, showLabel }: { status: string; title?: string; showLabel?: boolean }) {
+  const dot = WHATSAPP_DOTS[status] || WHATSAPP_DOTS.unchecked;
+  return (
+    <div className="flex items-center gap-2" title={title ? `${title}: ${dot.label}` : dot.label}>
+      <span className={`inline-block w-3 h-3 rounded-full ${dot.className}`} />
+      {showLabel && <span className={`text-xs ${status === 'missing' ? 'text-orange-600' : 'text-red-600'}`}>{dot.label}</span>}
+    </div>
+  );
+}
 
 /** Yellow warning listing parent numbers that cannot receive WhatsApp messages */
 function WhatsappProblemsWarning({ problems }: { problems: WhatsappNumberProblem[] }) {
@@ -1444,28 +1464,6 @@ function DashboardContent() {
     }
   };
 
-  const handleGenerateTelegramLink = async (parentId: string, studentName: string) => {
-    try {
-      const res = await fetch(`${API_URL}/admin/parents/${parentId}/telegram/generate-link`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (!res.ok) throw new Error('Failed to generate Telegram link');
-      const response = await res.json();
-
-      // Copy link to clipboard - backend returns data.data.telegram_link
-      const link = response.data?.telegram_link || response.telegram_link || response.link;
-      if (link) {
-        await navigator.clipboard.writeText(link);
-        setSuccess(`Telegram link copied! Send this to ${studentName}'s parent to connect.`);
-      } else {
-        throw new Error('No link in response');
-      }
-      fetchStudents();
-    } catch (err: any) {
-      setError(err.message || 'Failed to generate link');
-    }
-  };
 
   // Helper to format date with day name
   const formatDateWithDay = (dateStr: string) => {
@@ -2148,7 +2146,7 @@ function DashboardContent() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Due</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due Date</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Telegram</th>
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">WhatsApp</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                       </tr>
                     </thead>
@@ -2250,25 +2248,20 @@ function DashboardContent() {
                             <td className="px-4 py-4">
                               {student.parents && student.parents.length > 0 ? (
                                 <div className="space-y-1">
-                                  {student.parents.map((parent, idx) => (
-                                    <div key={idx} className="flex items-center gap-2">
-                                      {parent.telegram_connected ? (
-                                        <span className="inline-flex items-center px-2 py-0.5 text-xs rounded-full bg-green-100 text-green-800">
-                                          Connected
-                                        </span>
-                                      ) : (
-                                        <button
-                                          onClick={() => handleGenerateTelegramLink(parent.parent_id, student.name)}
-                                          className="px-2 py-0.5 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
-                                        >
-                                          Get Link
-                                        </button>
-                                      )}
-                                    </div>
-                                  ))}
+                                  {student.parents.map((parent, idx) => {
+                                    const status = parent.whatsapp?.problem || parent.whatsapp?.status || 'unchecked';
+                                    return (
+                                      <WhatsappDot
+                                        key={idx}
+                                        status={status}
+                                        title={parent.phone || parent.full_name}
+                                        showLabel={status !== 'ok' && status !== 'unchecked'}
+                                      />
+                                    );
+                                  })}
                                 </div>
                               ) : (
-                                <span className="text-gray-400 text-xs">No parent</span>
+                                <WhatsappDot status="missing" showLabel />
                               )}
                             </td>
                             <td className="px-4 py-4 space-x-2">

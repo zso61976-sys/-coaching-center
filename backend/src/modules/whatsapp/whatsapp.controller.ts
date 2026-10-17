@@ -160,11 +160,6 @@ export class WhatsappController {
     return { success: true, data: await this.whatsappService.getNumberProblems(req.user.tenantId) };
   }
 
-  @Post('check-numbers')
-  async checkAllNumbers(@Request() req: any) {
-    return this.whatsappService.checkAllNumbers(req.user.tenantId);
-  }
-
   @Post('save-contacts')
   async saveAllContacts(@Request() req: any) {
     return this.whatsappService.saveAllContacts(req.user.tenantId);

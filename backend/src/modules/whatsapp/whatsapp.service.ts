@@ -114,8 +114,26 @@ export interface NumberProblem {
   students: { id: string; fullName: string; grade: string | null }[];
 }
 
+export type NumberStatus =
+  | { status: 'ok' | 'unchecked' | 'missing' }
+  | { status: 'problem'; problem: NumberProblem['problem'] };
+
+/** Whether a parent's current number can receive WhatsApp messages, from the last check */
+export function numberStatus(
+  parent: { phone: string; whatsappCheck: string | null; whatsappCheckedPhone: string | null },
+  countryCode: string,
+): NumberStatus {
+  if (!parent.phone?.trim()) return { status: 'missing' };
+  if (!normalizePhone(parent.phone, countryCode)) return { status: 'problem', problem: 'invalid' };
+  if (parent.whatsappCheckedPhone !== parent.phone) return { status: 'unchecked' };
+  if (parent.whatsappCheck === 'not_on_whatsapp') return { status: 'problem', problem: 'not_on_whatsapp' };
+  return { status: parent.whatsappCheck === 'ok' ? 'ok' : 'unchecked' };
+}
+
 // Numbers are looked up on WhatsApp this many at a time
 const NUMBER_CHECK_BATCH = 50;
+// How often numbers that could not be checked yet are tried again
+const NUMBER_CHECK_INTERVAL_MS = 10 * 60 * 1000;
 
 const PROBLEM_PARENT_SELECT = {
   id: true,
@@ -224,6 +242,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private nextWelcomeAt = new Map<string, number>();
   /** Contact saves waiting to run, chained per SIM */
   private contactChains = new Map<string, Promise<unknown>>();
+  /** Automatic number checks: one run at a time per company */
+  private numberCheckRuns = new Map<string, Promise<void>>();
+  private numberCheckTimer?: NodeJS.Timeout;
 
   constructor(
     private prisma: PrismaService,
@@ -244,9 +265,18 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.logger.error(`WhatsApp reconnect failed for SIM ${account.id}: ${err.message}`),
       );
     }
+
+    // Numbers that could not be checked yet (no SIM was connected) are retried regularly
+    this.numberCheckTimer = setInterval(() => {
+      const tenantIds = new Set(
+        [...this.sessions.values()].filter((s) => s.status === 'connected').map((s) => s.tenantId),
+      );
+      for (const tenantId of tenantIds) this.checkUncheckedNumbers(tenantId);
+    }, NUMBER_CHECK_INTERVAL_MS);
   }
 
   onModuleDestroy() {
+    if (this.numberCheckTimer) clearInterval(this.numberCheckTimer);
     for (const session of this.sessions.values()) {
       session.stopped = true;
       try {
@@ -455,6 +485,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         this.logger.log(`WhatsApp SIM ${accountId} connected (${session.phone})`);
         // A newly linked balancing SIM takes its share of the parents
         await this.autoRebalance(session.tenantId);
+        // Numbers added while no SIM was connected can be checked now
+        this.checkUncheckedNumbers(session.tenantId);
       }
 
       if (connection === 'close') {
@@ -1023,22 +1055,32 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const problems: NumberProblem[] = [];
     let unchecked = 0;
     for (const p of parents) {
-      const checkedNow = p.whatsappCheckedPhone === p.phone;
-      if (!normalizePhone(p.phone, settings.countryCode)) problems.push(toProblem(p, 'invalid'));
-      else if (checkedNow && p.whatsappCheck === 'not_on_whatsapp') problems.push(toProblem(p, 'not_on_whatsapp'));
-      else if (!checkedNow) unchecked += 1;
+      const result = numberStatus(p, settings.countryCode);
+      if (result.status === 'problem') problems.push(toProblem(p, result.problem));
+      else if (result.status === 'unchecked') unchecked += 1;
     }
     return { problems, unchecked, total: parents.length };
   }
 
-  /** Check every parent number of the company */
-  async checkAllNumbers(tenantId: string) {
-    const settings = await this.getSettings(tenantId);
-    if (!settings.enabled) throw new BadRequestException('Turn on WhatsApp notifications first');
-    const connected = [...this.sessions.values()].some((s) => s.tenantId === tenantId && s.status === 'connected');
-    if (!connected) throw new BadRequestException('Connect at least one WhatsApp number first');
-    await this.checkParentNumbers(tenantId, {});
-    return { success: true, data: await this.getNumberProblems(tenantId) };
+  /** Check the numbers that were added or changed since their last check. Never throws. */
+  checkUncheckedNumbers(tenantId: string) {
+    const running = this.numberCheckRuns.get(tenantId);
+    if (running) return running;
+
+    const run = (async () => {
+      const parents = await this.prisma.parent.findMany({
+        where: { tenantId, phone: { not: '' } },
+        select: { id: true, phone: true, whatsappCheckedPhone: true },
+      });
+      const ids = parents.filter((p) => p.whatsappCheckedPhone !== p.phone).map((p) => p.id);
+      if (ids.length === 0) return;
+      const problems = await this.checkParentNumbers(tenantId, { id: { in: ids } });
+      this.logger.log(`Checked ${ids.length} WhatsApp number(s) for ${tenantId}: ${problems.length} problem(s)`);
+    })()
+      .catch((err) => this.logger.error(`Automatic number check failed for ${tenantId}: ${err.message}`))
+      .finally(() => this.numberCheckRuns.delete(tenantId));
+    this.numberCheckRuns.set(tenantId, run);
+    return run;
   }
 
   // ---------------------------------------------------------------------------
