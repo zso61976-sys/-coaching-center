@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../../common/prisma.service';
-import { normalizePhone, WhatsappService } from './whatsapp.service';
+import { normalizePhone, pick, WhatsappService } from './whatsapp.service';
 
 // Broadcasts go out slowly so the numbers do not look like spam to WhatsApp:
 // one message about every 2 minutes (150 parents ≈ 5 hours), starting as soon
@@ -36,10 +36,6 @@ const CLOSINGS = [
   'Thanks for your support.',
   'Best regards.',
 ];
-
-function pick<T>(items: T[]) {
-  return items[Math.floor(Math.random() * items.length)];
-}
 
 // Attendance messages (no priority) always go before broadcast messages
 const BROADCAST_JOB_OPTIONS = {

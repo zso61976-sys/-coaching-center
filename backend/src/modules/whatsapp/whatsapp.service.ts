@@ -55,6 +55,55 @@ const WELCOME_GAP_MS = 45 * 1000;
 const WELCOME_JITTER = 0.3;
 const WELCOME_JOB_OPTIONS = { ...JOB_OPTIONS, priority: 5 };
 
+export function pick<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+// Parts of the welcome message, picked at random so parents do not all get the same text
+const WELCOME_GREETINGS = [
+  'Assalam o Alaikum {name}!',
+  'Dear {name},',
+  'Hello {name},',
+  'Respected {name},',
+  'Assalam o Alaikum dear {name},',
+];
+const WELCOME_GREETINGS_NO_NAME = [
+  'Assalam o Alaikum!',
+  'Dear Parent,',
+  'Hello,',
+  'Respected Parent,',
+  'Assalam o Alaikum dear Parent,',
+];
+const WELCOME_ICONS = ['👋', '🌟', '😊', '🙂', '🎉'];
+const WELCOME_INTROS = [
+  'Welcome to *{company}*. *{student}* is now registered with us.',
+  '*{student}* has been registered at *{company}*. Welcome!',
+  'Thank you for choosing *{company}*. *{student}* is now registered with us.',
+  'We are happy to welcome *{student}* to *{company}*.',
+  'Welcome! *{student}* is now a student at *{company}*.',
+];
+const WELCOME_UPDATES = [
+  'You will receive a message on this number every time {student} checks in or out.',
+  'From now on, this number will tell you when {student} checks in and checks out.',
+  'Each time {student} arrives or leaves, you will get a message on this number.',
+  'You will be informed on this number whenever {student} checks in or out.',
+  'We will message you here every time {student} checks in or checks out.',
+];
+const WELCOME_SAVE = [
+  'Please *save this number* in your contacts as "{company}" so you receive every update.',
+  'Kindly *save this number* as "{company}" in your phone so no update is missed.',
+  'To receive all updates, please *save this number* in your contacts as "{company}".',
+  'Please add this number to your contacts as "{company}" (*save it*) to get every message.',
+  'So that every message reaches you, please *save this number* as "{company}".',
+];
+const WELCOME_NO_REPLY = [
+  'This is an automated number. Please do not reply to this message.',
+  'This number sends automatic messages only. Please do not reply here.',
+  'Messages from this number are automatic. Kindly do not reply.',
+  'This is an automatic service, so replies to this number are not read.',
+  'Please do not reply to this number. It only sends automatic updates.',
+];
+
 export type NumberCheck = 'ok' | 'invalid' | 'not_on_whatsapp';
 
 export interface NumberProblem {
@@ -1053,15 +1102,18 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  /** Every parent gets the same welcome in different wording, like broadcasts */
   private formatWelcome(parentName: string, studentName: string, companyName: string) {
-    const greeting = parentName && !parentName.startsWith('Parent of') ? ` ${parentName}` : '';
-    return (
-      `Assalam o Alaikum${greeting}! 👋\n\n` +
-      `Welcome to *${companyName}*. *${studentName}* is now registered with us.\n\n` +
-      `You will receive a message on this number every time ${studentName} checks in or out.\n\n` +
-      `📌 Please *save this number* in your contacts as "${companyName}" so you receive every update.\n\n` +
-      `⚠️ This is an automated number. Please do not reply to this message.`
-    );
+    const name = parentName && !parentName.startsWith('Parent of') ? parentName : '';
+    const fill = (text: string) =>
+      text.replace(/\{name\}/g, name).replace(/\{student\}/g, studentName).replace(/\{company\}/g, companyName);
+    return [
+      `${fill(pick(name ? WELCOME_GREETINGS : WELCOME_GREETINGS_NO_NAME))} ${pick(WELCOME_ICONS)}`,
+      fill(pick(WELCOME_INTROS)),
+      fill(pick(WELCOME_UPDATES)),
+      `📌 ${fill(pick(WELCOME_SAVE))}`,
+      `⚠️ ${pick(WELCOME_NO_REPLY)}`,
+    ].join('\n\n');
   }
 
   private formatMessage(
