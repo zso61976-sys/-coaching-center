@@ -366,6 +366,9 @@ function DashboardContent() {
   } | null>(null);
   // Parent numbers of a newly added student that are wrong or not on WhatsApp
   const [whatsappWarning, setWhatsappWarning] = useState<WhatsappNumberProblem[]>([]);
+  // Students ticked in the list, for deleting several at once
+  const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -1449,19 +1452,43 @@ function DashboardContent() {
     }
   };
 
-  const handleDeleteStudent = async (student: Student) => {
-    if (!confirm(`Are you sure you want to delete student "${student.name}"? This will also remove their biometric enrollments.`)) return;
-    try {
-      const res = await fetch(`${API_URL}/admin/students/${student.id}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      if (!res.ok) throw new Error('Failed to delete student');
-      setSuccess('Student deleted successfully');
-      fetchStudents();
-    } catch (err: any) {
-      setError(err.message || 'Failed to delete student');
+  const toggleStudentSelected = (id: string) => {
+    setSelectedStudentIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleDeleteSelected = async () => {
+    const selected = students.filter((s) => selectedStudentIds.has(s.id));
+    if (selected.length === 0) return;
+    const names = selected.slice(0, 10).map((s) => s.name).join(', ');
+    const more = selected.length > 10 ? ` and ${selected.length - 10} more` : '';
+    if (!confirm(`Delete ${selected.length} student(s): ${names}${more}?\n\nTheir biometric enrollments are removed too. This cannot be undone.`)) return;
+
+    setError('');
+    setSuccess('');
+    setDeleting(true);
+    const failed: string[] = [];
+    for (const student of selected) {
+      try {
+        const res = await fetch(`${API_URL}/admin/students/${student.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!res.ok) throw new Error();
+      } catch {
+        failed.push(student.name);
+      }
     }
+    setDeleting(false);
+    setSelectedStudentIds(new Set());
+    const deleted = selected.length - failed.length;
+    if (deleted > 0) setSuccess(`${deleted} student(s) deleted`);
+    if (failed.length > 0) setError(`Could not delete: ${failed.join(', ')}`);
+    fetchStudents();
   };
 
 
@@ -2123,8 +2150,25 @@ function DashboardContent() {
 
             {/* Students Table */}
             <div className="bg-white rounded-xl shadow">
-              <div className="p-6 border-b">
+              <div className="p-6 border-b flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-lg font-bold">Students ({students.length})</h2>
+                {selectedStudentIds.size > 0 && (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setSelectedStudentIds(new Set())}
+                      className="text-sm text-gray-600 hover:text-gray-900"
+                    >
+                      Clear selection
+                    </button>
+                    <button
+                      onClick={handleDeleteSelected}
+                      disabled={deleting}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium disabled:opacity-50"
+                    >
+                      {deleting ? 'Deleting…' : `Delete selected (${selectedStudentIds.size})`}
+                    </button>
+                  </div>
+                )}
               </div>
               {loading ? (
                 <div className="p-8 text-center text-gray-500">Loading...</div>
@@ -2137,6 +2181,17 @@ function DashboardContent() {
                   <table className="w-full">
                     <thead className="bg-gray-50">
                       <tr>
+                        <th className="px-4 py-3 w-10">
+                          <input
+                            type="checkbox"
+                            aria-label="Select all students"
+                            className="w-4 h-4 cursor-pointer"
+                            checked={students.length > 0 && students.every((s) => selectedStudentIds.has(s.id))}
+                            onChange={(e) =>
+                              setSelectedStudentIds(e.target.checked ? new Set(students.map((s) => s.id)) : new Set())
+                            }
+                          />
+                        </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student ID</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade</th>
@@ -2147,7 +2202,6 @@ function DashboardContent() {
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due Date</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">WhatsApp</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
@@ -2165,7 +2219,19 @@ function DashboardContent() {
                         const isDueDatePassed = student.feeDueDate && new Date(student.feeDueDate) < new Date();
 
                         return (
-                          <tr key={student.id} className="hover:bg-gray-50">
+                          <tr
+                            key={student.id}
+                            className={selectedStudentIds.has(student.id) ? 'bg-red-50' : 'hover:bg-gray-50'}
+                          >
+                            <td className="px-4 py-4">
+                              <input
+                                type="checkbox"
+                                aria-label={`Select ${student.name}`}
+                                className="w-4 h-4 cursor-pointer"
+                                checked={selectedStudentIds.has(student.id)}
+                                onChange={() => toggleStudentSelected(student.id)}
+                              />
+                            </td>
                             <td className="px-4 py-4 font-medium">
                               <button
                                 type="button"
@@ -2263,20 +2329,6 @@ function DashboardContent() {
                               ) : (
                                 <WhatsappDot status="missing" showLabel />
                               )}
-                            </td>
-                            <td className="px-4 py-4 space-x-2">
-                              <button
-                                onClick={() => handleEditStudent(student)}
-                                className="px-3 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm font-medium"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleDeleteStudent(student)}
-                                className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm font-medium"
-                              >
-                                Delete
-                              </button>
                             </td>
                           </tr>
                         );
