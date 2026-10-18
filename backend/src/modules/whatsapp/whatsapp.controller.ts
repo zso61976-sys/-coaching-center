@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query, Request, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import {
   ArrayMinSize,
@@ -13,7 +13,7 @@ import {
 } from 'class-validator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { SimRole, WhatsappService } from './whatsapp.service';
+import { LogFilter, SimRole, WhatsappService } from './whatsapp.service';
 import { WhatsappBroadcastService } from './whatsapp-broadcast.service';
 
 class UpdateWhatsappSettingsDto {
@@ -213,7 +213,9 @@ export class WhatsappController {
   }
 
   @Get('logs')
-  async getLogs(@Request() req: any) {
-    return { success: true, data: await this.whatsappService.getLogs(req.user.tenantId) };
+  async getLogs(@Request() req: any, @Query('filter') filter?: string) {
+    const valid: LogFilter[] = ['all', 'waiting', 'sent', 'failed'];
+    const chosen = valid.includes(filter as LogFilter) ? (filter as LogFilter) : 'all';
+    return { success: true, data: await this.whatsappService.getLogs(req.user.tenantId, chosen) };
   }
 }

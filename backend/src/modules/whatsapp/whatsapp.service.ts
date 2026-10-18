@@ -55,6 +55,16 @@ const WELCOME_GAP_MS = 45 * 1000;
 const WELCOME_JITTER = 0.3;
 const WELCOME_JOB_OPTIONS = { ...JOB_OPTIONS, priority: 5 };
 
+export type LogFilter = 'all' | 'waiting' | 'sent' | 'failed';
+
+// Message statuses shown by each filter of the message log (all: no filter)
+const LOG_FILTER_STATUSES: Record<LogFilter, string[] | null> = {
+  all: null,
+  waiting: ['queued', 'retry'],
+  sent: ['sent'],
+  failed: ['failed', 'cancelled'],
+};
+
 export function pick<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)];
 }
@@ -776,20 +786,41 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async getLogs(tenantId: string, limit = 50) {
-    const [logs, accounts] = await Promise.all([
+  /**
+   * Message log, newest first. "waiting" shows queued and retrying messages, the next one to go first.
+   * Also returns how many messages are in each group.
+   */
+  async getLogs(tenantId: string, filter: LogFilter = 'all', limit = 100) {
+    const statuses = LOG_FILTER_STATUSES[filter];
+    const [logs, accounts, counts] = await Promise.all([
       this.prisma.whatsappMessageLog.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'desc' },
+        where: { tenantId, ...(statuses ? { status: { in: statuses } } : {}) },
+        orderBy:
+          filter === 'waiting'
+            ? [{ scheduledAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'asc' }]
+            : { createdAt: 'desc' },
         take: limit,
       }),
       this.prisma.whatsappAccount.findMany({ where: { tenantId }, select: { id: true, label: true } }),
+      this.prisma.whatsappMessageLog.groupBy({
+        by: ['status'],
+        where: { tenantId },
+        _count: { _all: true },
+      }),
     ]);
     const labels = new Map(accounts.map((a) => [a.id, a.label]));
-    return logs.map((log) => ({
-      ...log,
-      accountLabel: log.accountId ? labels.get(log.accountId) || null : null,
-    }));
+    const count = (group: LogFilter) =>
+      counts
+        .filter((c) => !LOG_FILTER_STATUSES[group] || LOG_FILTER_STATUSES[group]!.includes(c.status))
+        .reduce((sum, c) => sum + c._count._all, 0);
+
+    return {
+      logs: logs.map((log) => ({
+        ...log,
+        accountLabel: log.accountId ? labels.get(log.accountId) || null : null,
+      })),
+      counts: { all: count('all'), waiting: count('waiting'), sent: count('sent'), failed: count('failed') },
+    };
   }
 
   /** Create a log entry and queue the message for a parent from their assigned SIM */
@@ -818,6 +849,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         messageText: data.text,
         status: data.phone ? 'queued' : 'failed',
         errorText: data.phone ? null : 'Invalid phone number or missing country code',
+        scheduledAt: data.phone ? new Date(Date.now() + (jobOptions.delay || 0)) : null,
       },
     });
     if (!data.phone) {

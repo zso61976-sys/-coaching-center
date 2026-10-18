@@ -265,6 +265,7 @@ export class WhatsappBroadcastService {
           messageType: 'broadcast',
           messageText: text,
           status: 'queued',
+          scheduledAt: times[i],
         },
       });
       await this.whatsappQueue.add(

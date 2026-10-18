@@ -453,6 +453,8 @@ model WhatsappMessageLog {
   errorText    String?   @map("error_text") @db.Text
   waMessageId  String?   @map("wa_message_id") @db.VarChar(100)
   sentAt       DateTime? @map("sent_at")
+  // When a queued message is due to go out
+  scheduledAt  DateTime? @map("scheduled_at")
   broadcastId  String?   @map("broadcast_id") @db.Uuid
   createdAt    DateTime  @default(now()) @map("created_at")
 

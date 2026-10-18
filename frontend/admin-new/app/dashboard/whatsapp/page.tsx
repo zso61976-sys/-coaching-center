@@ -43,6 +43,48 @@ interface MessageLog {
   errorText: string | null;
   accountLabel: string | null;
   createdAt: string;
+  sentAt: string | null;
+  scheduledAt: string | null;
+}
+
+type LogFilter = 'all' | 'waiting' | 'sent' | 'failed';
+
+const LOG_FILTERS: { value: LogFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'waiting', label: 'Waiting' },
+  { value: 'sent', label: 'Sent' },
+  { value: 'failed', label: 'Failed' },
+];
+
+// A queued message due more than this far ahead counts as scheduled, not waiting in the queue
+const SCHEDULED_AHEAD_MS = 60 * 1000;
+const LOG_REFRESH_MS = 30 * 1000;
+
+function formatTime(iso: string) {
+  const date = new Date(iso);
+  const sameDay = date.toDateString() === new Date().toDateString();
+  return sameDay
+    ? date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : date.toLocaleString([], { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+/** Colour, label and extra line for a message's status */
+function logBadge(log: MessageLog): { label: string; className: string; detail?: string } {
+  switch (log.status) {
+    case 'sent':
+      return { label: 'Sent', className: 'bg-green-100 text-green-800', detail: log.sentAt ? `at ${formatTime(log.sentAt)}` : undefined };
+    case 'failed':
+      return { label: 'Failed', className: 'bg-red-100 text-red-800' };
+    case 'cancelled':
+      return { label: 'Cancelled', className: 'bg-gray-100 text-gray-700' };
+    case 'retry':
+      return { label: 'Retrying', className: 'bg-orange-100 text-orange-800' };
+    default:
+      if (log.scheduledAt && new Date(log.scheduledAt).getTime() - Date.now() > SCHEDULED_AHEAD_MS) {
+        return { label: 'Scheduled', className: 'bg-blue-100 text-blue-800', detail: `for ${formatTime(log.scheduledAt)}` };
+      }
+      return { label: 'In queue', className: 'bg-yellow-100 text-yellow-800', detail: 'sending soon' };
+  }
 }
 
 interface NumberProblem {
@@ -91,6 +133,8 @@ export default function WhatsappPage() {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [settingsForm, setSettingsForm] = useState<Settings | null>(null);
   const [logs, setLogs] = useState<MessageLog[]>([]);
+  const [logFilter, setLogFilter] = useState<LogFilter>('all');
+  const [logCounts, setLogCounts] = useState<Record<LogFilter, number> | null>(null);
   const [numberProblems, setNumberProblems] = useState<NumberProblems | null>(null);
   const [testPhone, setTestPhone] = useState('');
   const [testAccountId, setTestAccountId] = useState('');
@@ -132,12 +176,21 @@ export default function WhatsappPage() {
   const loadLogs = useCallback(async () => {
     if (!token) return;
     try {
-      const json = await request('/logs');
-      setLogs(json.data);
+      const json = await request(`/logs?filter=${logFilter}`);
+      setLogs(json.data.logs);
+      setLogCounts(json.data.counts);
     } catch (err) {
       console.error('Failed to load WhatsApp logs:', err);
     }
-  }, [token, request]);
+  }, [token, request, logFilter]);
+
+  // While messages are waiting, refresh the log so they turn to sent on their own
+  const hasWaiting = (logCounts?.waiting || 0) > 0;
+  useEffect(() => {
+    if (!hasWaiting) return;
+    const timer = setInterval(loadLogs, LOG_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [hasWaiting, loadLogs]);
 
   const loadNumberProblems = useCallback(async () => {
     if (!token) return;
@@ -712,11 +765,27 @@ export default function WhatsappPage() {
 
       {/* Message log */}
       <div className="bg-white rounded-xl shadow-sm">
-        <div className="p-6 border-b border-gray-200 flex justify-between items-center">
+        <div className="p-6 border-b border-gray-200 flex flex-wrap gap-3 justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-800">Recent messages</h3>
-          <button onClick={loadLogs} className="text-sm text-indigo-600 hover:text-indigo-800">
-            Refresh
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {LOG_FILTERS.map((f) => (
+              <button
+                key={f.value}
+                onClick={() => setLogFilter(f.value)}
+                className={`px-3 py-1 rounded-full text-sm border transition-colors ${
+                  logFilter === f.value
+                    ? 'bg-indigo-600 border-indigo-600 text-white'
+                    : 'border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {f.label}
+                {logCounts && <span className="ml-1 opacity-75">({logCounts[f.value]})</span>}
+              </button>
+            ))}
+            <button onClick={loadLogs} className="ml-2 text-sm text-indigo-600 hover:text-indigo-800">
+              Refresh
+            </button>
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -730,7 +799,9 @@ export default function WhatsappPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {logs.map((log) => (
+              {logs.map((log) => {
+                const badge = logBadge(log);
+                return (
                 <tr key={log.id}>
                   <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
                     {new Date(log.createdAt).toLocaleString()}
@@ -742,30 +813,22 @@ export default function WhatsappPage() {
                     {MESSAGE_TYPES[log.messageType] || log.messageType}
                   </td>
                   <td className="px-4 py-3 text-gray-600">{log.accountLabel || '—'}</td>
-                  <td className="px-4 py-3">
-                    <span
-                      className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        log.status === 'sent'
-                          ? 'bg-green-100 text-green-800'
-                          : log.status === 'failed'
-                            ? 'bg-red-100 text-red-800'
-                            : log.status === 'cancelled'
-                              ? 'bg-gray-100 text-gray-700'
-                              : 'bg-yellow-100 text-yellow-800'
-                      }`}
-                    >
-                      {log.status}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${badge.className}`}>
+                      {badge.label}
                     </span>
+                    {badge.detail && <div className="text-xs text-gray-500 mt-1">{badge.detail}</div>}
                     {log.errorText && log.status !== 'sent' && log.status !== 'cancelled' && (
-                      <div className="text-xs text-red-600 mt-1">{log.errorText}</div>
+                      <div className="text-xs text-red-600 mt-1 whitespace-normal">{log.errorText}</div>
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
               {logs.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
-                    No messages yet.
+                    {logFilter === 'all' ? 'No messages yet.' : 'No messages here.'}
                   </td>
                 </tr>
               )}
