@@ -11,11 +11,50 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL
 
 type ConnectionStatus = 'disconnected' | 'connecting' | 'qr' | 'connected';
 
+interface WelcomeTexts {
+  greetings: string[];
+  greetingsNoName: string[];
+  intros: string[];
+  updates: string[];
+  save: string[];
+  noReply: string[];
+}
+
 interface Settings {
   enabled: boolean;
   welcomeEnabled: boolean;
   countryCode: string;
   timeZone: string;
+  welcomeTexts: WelcomeTexts;
+}
+
+// The welcome message is built from one line of each part, picked at random per parent
+const WELCOME_PARTS: { key: keyof WelcomeTexts; label: string; hint: string }[] = [
+  { key: 'greetings', label: 'Greeting', hint: 'When the parent name is known. Use {name}.' },
+  { key: 'greetingsNoName', label: 'Greeting without a name', hint: 'When no parent name was entered.' },
+  { key: 'intros', label: 'Welcome line', hint: 'Use {student} and {company}.' },
+  { key: 'updates', label: 'Check-in / check-out line', hint: 'Use {student}.' },
+  { key: 'save', label: 'Save our number (📌)', hint: 'Use {company}.' },
+  { key: 'noReply', label: 'Do not reply (⚠️)', hint: '' },
+];
+const WELCOME_ICONS = ['👋', '🌟', '😊', '🙂', '🎉'];
+
+function pickOne<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+/** Same steps as the server, with sample names, so the preview looks like a real welcome */
+function sampleWelcome(texts: WelcomeTexts, companyName: string) {
+  const line = (key: keyof WelcomeTexts) => pickOne((texts?.[key] ?? []).filter((t) => t.trim())) || '';
+  const fill = (text: string) =>
+    text.replace(/\{name\}/g, 'Mohammad Khan').replace(/\{student\}/g, 'Ahmed Khan').replace(/\{company\}/g, companyName);
+  return [
+    `${fill(line('greetings'))} ${pickOne(WELCOME_ICONS)}`,
+    fill(line('intros')),
+    fill(line('updates')),
+    `📌 ${fill(line('save'))}`,
+    `⚠️ ${fill(line('noReply'))}`,
+  ].join('\n\n');
 }
 
 type SimRole = 'balance' | 'backup';
@@ -129,7 +168,7 @@ const MESSAGE_TYPES: Record<string, string> = {
 };
 
 export default function WhatsappPage() {
-  const { token } = useAuth();
+  const { token, company } = useAuth();
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [settingsForm, setSettingsForm] = useState<Settings | null>(null);
   const [logs, setLogs] = useState<MessageLog[]>([]);
@@ -306,6 +345,34 @@ export default function WhatsappPage() {
       const json = await request('/settings', 'PUT', settingsForm);
       setSettingsForm(json.data);
       setMessage({ ok: true, text: 'Settings saved' });
+    });
+  };
+
+  const [welcomePreview, setWelcomePreview] = useState('');
+
+  const setWelcomePart = (key: keyof WelcomeTexts, value: string) => {
+    if (!settingsForm) return;
+    setSettingsForm({ ...settingsForm, welcomeTexts: { ...settingsForm.welcomeTexts, [key]: value.split('\n') } });
+  };
+
+  const handleSaveWelcome = () => {
+    if (!settingsForm) return;
+    run(async () => {
+      const json = await request('/settings', 'PUT', settingsForm);
+      setSettingsForm(json.data);
+      setMessage({ ok: true, text: 'Welcome message saved' });
+    });
+  };
+
+  const handleResetWelcome = () => {
+    if (!settingsForm) return;
+    // Empty parts fall back to the default wording on the server
+    const empty = Object.fromEntries(WELCOME_PARTS.map((part) => [part.key, []])) as unknown as WelcomeTexts;
+    run(async () => {
+      const json = await request('/settings', 'PUT', { ...settingsForm, welcomeTexts: empty });
+      setSettingsForm(json.data);
+      setWelcomePreview('');
+      setMessage({ ok: true, text: 'Welcome message reset to the default wording' });
     });
   };
 
@@ -696,6 +763,64 @@ export default function WhatsappPage() {
             </div>
           </form>
         </div>
+      </div>
+
+      {/* Welcome message wording */}
+      <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-800">Welcome message</h3>
+          <p className="text-sm text-gray-600 mt-1">
+            Each welcome is made of the parts below. Write one wording per line; every parent gets a
+            randomly picked line from each part, so the messages do not all look the same. Words in
+            braces are filled in: <code>{'{name}'}</code> parent name, <code>{'{student}'}</code> student
+            name, <code>{'{company}'}</code> your center. Put text between <code>*stars*</code> to make it bold
+            in WhatsApp. A part left empty uses the default wording.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {WELCOME_PARTS.map((part) => (
+            <div key={part.key}>
+              <label className="block text-sm font-medium text-gray-700">{part.label}</label>
+              {part.hint && <p className="text-xs text-gray-500 mb-1">{part.hint}</p>}
+              <textarea
+                value={(settingsForm.welcomeTexts?.[part.key] ?? []).join('\n')}
+                onChange={(e) => setWelcomePart(part.key, e.target.value)}
+                rows={5}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap gap-3">
+          <button
+            onClick={handleSaveWelcome}
+            disabled={busy}
+            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50"
+          >
+            Save Welcome Message
+          </button>
+          <button
+            onClick={() => setWelcomePreview(sampleWelcome(settingsForm.welcomeTexts, company?.name || 'Your Center'))}
+            className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
+          >
+            {welcomePreview ? 'Show Another Example' : 'Show Example'}
+          </button>
+          <button
+            onClick={handleResetWelcome}
+            disabled={busy}
+            className="px-4 py-2 text-red-600 rounded-lg hover:bg-red-50 disabled:opacity-50"
+          >
+            Reset to Default
+          </button>
+        </div>
+
+        {welcomePreview && (
+          <div className="max-w-md bg-[#dcf8c6] rounded-lg p-4 text-sm text-gray-800 whitespace-pre-wrap shadow-sm">
+            {welcomePreview}
+          </div>
+        )}
       </div>
 
       {/* Parent numbers with a problem */}

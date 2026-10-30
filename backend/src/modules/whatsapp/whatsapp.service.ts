@@ -28,19 +28,23 @@ interface Session {
   reconnectAttempts: number;
 }
 
+/** Wording choices for each part of the welcome message; one is picked at random per parent */
+export interface WelcomeTexts {
+  greetings: string[];
+  greetingsNoName: string[];
+  intros: string[];
+  updates: string[];
+  save: string[];
+  noReply: string[];
+}
+
 export interface WhatsappSettings {
   enabled: boolean;
   welcomeEnabled: boolean;
   countryCode: string;
   timeZone: string;
+  welcomeTexts: WelcomeTexts;
 }
-
-const DEFAULT_SETTINGS: WhatsappSettings = {
-  enabled: false,
-  welcomeEnabled: true,
-  countryCode: '971',
-  timeZone: 'Asia/Dubai',
-};
 
 const JOB_OPTIONS = {
   attempts: 3,
@@ -69,50 +73,74 @@ export function pick<T>(items: T[]) {
   return items[Math.floor(Math.random() * items.length)];
 }
 
-// Parts of the welcome message, picked at random so parents do not all get the same text
-const WELCOME_GREETINGS = [
-  'Assalam o Alaikum {name}!',
-  'Dear {name},',
-  'Hello {name},',
-  'Respected {name},',
-  'Assalam o Alaikum dear {name},',
-];
-const WELCOME_GREETINGS_NO_NAME = [
-  'Assalam o Alaikum!',
-  'Dear Parent,',
-  'Hello,',
-  'Respected Parent,',
-  'Assalam o Alaikum dear Parent,',
-];
+// Parts of the welcome message, picked at random so parents do not all get the same text.
+// Companies can change them on the WhatsApp page; these are the defaults.
 const WELCOME_ICONS = ['👋', '🌟', '😊', '🙂', '🎉'];
-const WELCOME_INTROS = [
-  'Welcome to *{company}*. *{student}* is now registered with us.',
-  '*{student}* has been registered at *{company}*. Welcome!',
-  'Thank you for choosing *{company}*. *{student}* is now registered with us.',
-  'We are happy to welcome *{student}* to *{company}*.',
-  'Welcome! *{student}* is now a student at *{company}*.',
-];
-const WELCOME_UPDATES = [
-  'You will receive a message on this number every time {student} checks in or out.',
-  'From now on, this number will tell you when {student} checks in and checks out.',
-  'Each time {student} arrives or leaves, you will get a message on this number.',
-  'You will be informed on this number whenever {student} checks in or out.',
-  'We will message you here every time {student} checks in or checks out.',
-];
-const WELCOME_SAVE = [
-  'Please *save this number* in your contacts as "{company}" so you receive every update.',
-  'Kindly *save this number* as "{company}" in your phone so no update is missed.',
-  'To receive all updates, please *save this number* in your contacts as "{company}".',
-  'Please add this number to your contacts as "{company}" (*save it*) to get every message.',
-  'So that every message reaches you, please *save this number* as "{company}".',
-];
-const WELCOME_NO_REPLY = [
-  'This is an automated number. Please do not reply to this message.',
-  'This number sends automatic messages only. Please do not reply here.',
-  'Messages from this number are automatic. Kindly do not reply.',
-  'This is an automatic service, so replies to this number are not read.',
-  'Please do not reply to this number. It only sends automatic updates.',
-];
+export const DEFAULT_WELCOME_TEXTS: WelcomeTexts = {
+  greetings: [
+    'Assalam o Alaikum {name}!',
+    'Dear {name},',
+    'Hello {name},',
+    'Respected {name},',
+    'Assalam o Alaikum dear {name},',
+  ],
+  greetingsNoName: [
+    'Assalam o Alaikum!',
+    'Dear Parent,',
+    'Hello,',
+    'Respected Parent,',
+    'Assalam o Alaikum dear Parent,',
+  ],
+  intros: [
+    'Welcome to *{company}*. *{student}* is now registered with us.',
+    '*{student}* has been registered at *{company}*. Welcome!',
+    'Thank you for choosing *{company}*. *{student}* is now registered with us.',
+    'We are happy to welcome *{student}* to *{company}*.',
+    'Welcome! *{student}* is now a student at *{company}*.',
+  ],
+  updates: [
+    'You will receive a message on this number every time {student} checks in or out.',
+    'From now on, this number will tell you when {student} checks in and checks out.',
+    'Each time {student} arrives or leaves, you will get a message on this number.',
+    'You will be informed on this number whenever {student} checks in or out.',
+    'We will message you here every time {student} checks in or checks out.',
+  ],
+  save: [
+    'Please *save this number* in your contacts as "{company}" so you receive every update.',
+    'Kindly *save this number* as "{company}" in your phone so no update is missed.',
+    'To receive all updates, please *save this number* in your contacts as "{company}".',
+    'Please add this number to your contacts as "{company}" (*save it*) to get every message.',
+    'So that every message reaches you, please *save this number* as "{company}".',
+  ],
+  noReply: [
+    'This is an automated number. Please do not reply to this message.',
+    'This number sends automatic messages only. Please do not reply here.',
+    'Messages from this number are automatic. Kindly do not reply.',
+    'This is an automatic service, so replies to this number are not read.',
+    'Please do not reply to this number. It only sends automatic updates.',
+  ],
+};
+const WELCOME_TEXT_KEYS = Object.keys(DEFAULT_WELCOME_TEXTS) as (keyof WelcomeTexts)[];
+
+const DEFAULT_SETTINGS: WhatsappSettings = {
+  enabled: false,
+  welcomeEnabled: true,
+  countryCode: '971',
+  timeZone: 'Asia/Dubai',
+  welcomeTexts: DEFAULT_WELCOME_TEXTS,
+};
+
+/** Saved wording with blank lines dropped; a part left empty falls back to the default */
+function cleanWelcomeTexts(texts?: Partial<Record<keyof WelcomeTexts, unknown>>): WelcomeTexts {
+  const result = {} as WelcomeTexts;
+  for (const key of WELCOME_TEXT_KEYS) {
+    const lines = Array.isArray(texts?.[key])
+      ? (texts![key] as unknown[]).map((line) => String(line ?? '').trim().slice(0, 500)).filter(Boolean).slice(0, 20)
+      : [];
+    result[key] = lines.length ? lines : DEFAULT_WELCOME_TEXTS[key];
+  }
+  return result;
+}
 
 export type NumberCheck = 'ok' | 'invalid' | 'not_on_whatsapp';
 
@@ -737,10 +765,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async getSettings(tenantId: string): Promise<WhatsappSettings> {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     const saved = ((tenant?.settings as any) || {}).whatsapp || {};
-    return { ...DEFAULT_SETTINGS, ...saved };
+    return { ...DEFAULT_SETTINGS, ...saved, welcomeTexts: cleanWelcomeTexts(saved.welcomeTexts) };
   }
 
-  async updateSettings(tenantId: string, data: Partial<WhatsappSettings>) {
+  async updateSettings(
+    tenantId: string,
+    data: Partial<Omit<WhatsappSettings, 'welcomeTexts'>> & { welcomeTexts?: Partial<WelcomeTexts> },
+  ) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     const settings = (tenant?.settings as any) || {};
     const current = { ...DEFAULT_SETTINGS, ...(settings.whatsapp || {}) };
@@ -750,6 +781,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       welcomeEnabled: data.welcomeEnabled ?? current.welcomeEnabled,
       countryCode: (data.countryCode ?? current.countryCode).replace(/\D/g, ''),
       timeZone: data.timeZone ?? current.timeZone,
+      welcomeTexts: cleanWelcomeTexts(data.welcomeTexts ?? current.welcomeTexts),
     };
 
     try {
@@ -950,7 +982,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           phone,
           student,
           messageType: 'welcome',
-          text: this.formatWelcome(parent.fullName, student.fullName, tenant?.name || 'our center'),
+          text: this.formatWelcome(settings.welcomeTexts, parent.fullName, student.fullName, tenant?.name || 'our center'),
         }, { ...WELCOME_JOB_OPTIONS, delay: this.nextWelcomeDelay(tenantId) });
         if (sent) queued += 1;
       }
@@ -1177,16 +1209,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Every parent gets the same welcome in different wording, like broadcasts */
-  private formatWelcome(parentName: string, studentName: string, companyName: string) {
+  private formatWelcome(texts: WelcomeTexts, parentName: string, studentName: string, companyName: string) {
     const name = parentName && !parentName.startsWith('Parent of') ? parentName : '';
     const fill = (text: string) =>
       text.replace(/\{name\}/g, name).replace(/\{student\}/g, studentName).replace(/\{company\}/g, companyName);
     return [
-      `${fill(pick(name ? WELCOME_GREETINGS : WELCOME_GREETINGS_NO_NAME))} ${pick(WELCOME_ICONS)}`,
-      fill(pick(WELCOME_INTROS)),
-      fill(pick(WELCOME_UPDATES)),
-      `📌 ${fill(pick(WELCOME_SAVE))}`,
-      `⚠️ ${pick(WELCOME_NO_REPLY)}`,
+      `${fill(pick(name ? texts.greetings : texts.greetingsNoName))} ${pick(WELCOME_ICONS)}`,
+      fill(pick(texts.intros)),
+      fill(pick(texts.updates)),
+      `📌 ${fill(pick(texts.save))}`,
+      `⚠️ ${fill(pick(texts.noReply))}`,
     ].join('\n\n');
   }
 

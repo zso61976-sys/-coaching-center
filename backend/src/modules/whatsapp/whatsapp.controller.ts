@@ -6,6 +6,7 @@ import {
   IsBoolean,
   IsDateString,
   IsIn,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -13,7 +14,7 @@ import {
 } from 'class-validator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Roles } from '../../common/decorators/roles.decorator';
-import { LogFilter, SimRole, WhatsappService } from './whatsapp.service';
+import { LogFilter, SimRole, WelcomeTexts, WhatsappService } from './whatsapp.service';
 import { WhatsappBroadcastService } from './whatsapp-broadcast.service';
 
 class UpdateWhatsappSettingsDto {
@@ -32,6 +33,11 @@ class UpdateWhatsappSettingsDto {
   @IsOptional()
   @IsString()
   timeZone?: string;
+
+  // Lists of wording per message part; cleaned up in the service
+  @IsOptional()
+  @IsObject()
+  welcomeTexts?: Partial<Record<keyof WelcomeTexts, string[]>>;
 }
 
 class CreateAccountDto {
