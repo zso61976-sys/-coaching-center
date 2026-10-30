@@ -38,6 +38,11 @@ class UpdateWhatsappSettingsDto {
   @IsOptional()
   @IsObject()
   welcomeTexts?: Partial<Record<keyof WelcomeTexts, string[]>>;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  welcomeFooter?: string;
 }
 
 class CreateAccountDto {

@@ -26,6 +26,7 @@ interface Settings {
   countryCode: string;
   timeZone: string;
   welcomeTexts: WelcomeTexts;
+  welcomeFooter: string;
 }
 
 // The welcome message is built from one line of each part, picked at random per parent
@@ -44,7 +45,7 @@ function pickOne<T>(items: T[]) {
 }
 
 /** Same steps as the server, with sample names, so the preview looks like a real welcome */
-function sampleWelcome(texts: WelcomeTexts, companyName: string) {
+function sampleWelcome(texts: WelcomeTexts, footer: string, companyName: string) {
   const line = (key: keyof WelcomeTexts) => pickOne((texts?.[key] ?? []).filter((t) => t.trim())) || '';
   const fill = (text: string) =>
     text.replace(/\{name\}/g, 'Mohammad Khan').replace(/\{student\}/g, 'Ahmed Khan').replace(/\{company\}/g, companyName);
@@ -54,7 +55,8 @@ function sampleWelcome(texts: WelcomeTexts, companyName: string) {
     fill(line('updates')),
     `📌 ${fill(line('save'))}`,
     `⚠️ ${fill(line('noReply'))}`,
-  ].join('\n\n');
+    fill((footer || '').trim()),
+  ].filter(Boolean).join('\n\n');
 }
 
 type SimRole = 'balance' | 'backup';
@@ -770,8 +772,10 @@ export default function WhatsappPage() {
         <div>
           <h3 className="text-lg font-semibold text-gray-800">Welcome message</h3>
           <p className="text-sm text-gray-600 mt-1">
-            Each welcome is made of the parts below. Write one wording per line; every parent gets a
-            randomly picked line from each part, so the messages do not all look the same. Words in
+            Each welcome is made of the parts below. Each line in a box is a different <b>alternative</b>
+            wording: every parent gets only <b>one</b> randomly picked line from each box, so the messages
+            do not all look the same. For something every parent must get (like a website link), use
+            the &quot;Always added at the end&quot; box. Words in
             braces are filled in: <code>{'{name}'}</code> parent name, <code>{'{student}'}</code> student
             name, <code>{'{company}'}</code> your center. Put text between <code>*stars*</code> to make it bold
             in WhatsApp. A part left empty uses the default wording.
@@ -793,6 +797,21 @@ export default function WhatsappPage() {
           ))}
         </div>
 
+        <div>
+          <label className="block text-sm font-medium text-gray-700">Always added at the end</label>
+          <p className="text-xs text-gray-500 mb-1">
+            Sent in every welcome exactly as written, e.g. your website link, address or office phone.
+            Leave empty for none.
+          </p>
+          <textarea
+            value={settingsForm.welcomeFooter ?? ''}
+            onChange={(e) => setSettingsForm({ ...settingsForm, welcomeFooter: e.target.value })}
+            rows={3}
+            placeholder="🌐 Visit us: https://..."
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
+          />
+        </div>
+
         <div className="flex flex-wrap gap-3">
           <button
             onClick={handleSaveWelcome}
@@ -802,7 +821,7 @@ export default function WhatsappPage() {
             Save Welcome Message
           </button>
           <button
-            onClick={() => setWelcomePreview(sampleWelcome(settingsForm.welcomeTexts, company?.name || 'Your Center'))}
+            onClick={() => setWelcomePreview(sampleWelcome(settingsForm.welcomeTexts, settingsForm.welcomeFooter, company?.name || 'Your Center'))}
             className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
           >
             {welcomePreview ? 'Show Another Example' : 'Show Example'}

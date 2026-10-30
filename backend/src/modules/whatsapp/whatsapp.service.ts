@@ -44,6 +44,8 @@ export interface WhatsappSettings {
   countryCode: string;
   timeZone: string;
   welcomeTexts: WelcomeTexts;
+  /** Added unchanged to the end of every welcome, e.g. the website link */
+  welcomeFooter: string;
 }
 
 const JOB_OPTIONS = {
@@ -128,6 +130,7 @@ const DEFAULT_SETTINGS: WhatsappSettings = {
   countryCode: '971',
   timeZone: 'Asia/Dubai',
   welcomeTexts: DEFAULT_WELCOME_TEXTS,
+  welcomeFooter: '',
 };
 
 /** Saved wording with blank lines dropped; a part left empty falls back to the default */
@@ -782,6 +785,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       countryCode: (data.countryCode ?? current.countryCode).replace(/\D/g, ''),
       timeZone: data.timeZone ?? current.timeZone,
       welcomeTexts: cleanWelcomeTexts(data.welcomeTexts ?? current.welcomeTexts),
+      welcomeFooter: (data.welcomeFooter ?? current.welcomeFooter ?? '').trim().slice(0, 1000),
     };
 
     try {
@@ -982,7 +986,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
           phone,
           student,
           messageType: 'welcome',
-          text: this.formatWelcome(settings.welcomeTexts, parent.fullName, student.fullName, tenant?.name || 'our center'),
+          text: this.formatWelcome(settings, parent.fullName, student.fullName, tenant?.name || 'our center'),
         }, { ...WELCOME_JOB_OPTIONS, delay: this.nextWelcomeDelay(tenantId) });
         if (sent) queued += 1;
       }
@@ -1209,7 +1213,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Every parent gets the same welcome in different wording, like broadcasts */
-  private formatWelcome(texts: WelcomeTexts, parentName: string, studentName: string, companyName: string) {
+  private formatWelcome(settings: WhatsappSettings, parentName: string, studentName: string, companyName: string) {
+    const texts = settings.welcomeTexts;
     const name = parentName && !parentName.startsWith('Parent of') ? parentName : '';
     const fill = (text: string) =>
       text.replace(/\{name\}/g, name).replace(/\{student\}/g, studentName).replace(/\{company\}/g, companyName);
@@ -1219,7 +1224,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       fill(pick(texts.updates)),
       `📌 ${fill(pick(texts.save))}`,
       `⚠️ ${fill(pick(texts.noReply))}`,
-    ].join('\n\n');
+      fill(settings.welcomeFooter),
+    ].filter(Boolean).join('\n\n');
   }
 
   private formatMessage(
