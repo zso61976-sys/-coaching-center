@@ -1166,7 +1166,6 @@ function DashboardContent() {
         'Student ID': 'ST001',
         'Name': 'Ahmed Khan',
         'Class': '10th',
-        'Phone': '03001234567',
         'Parent Name': 'Mohammad Khan',
         'Parent Phone': '03009876543',
         'Telegram Chat ID': '',
@@ -1175,7 +1174,7 @@ function DashboardContent() {
     const ws = XLSX.utils.json_to_sheet(templateData);
     // Set column widths
     ws['!cols'] = [
-      { wch: 15 }, { wch: 25 }, { wch: 10 }, { wch: 15 },
+      { wch: 15 }, { wch: 25 }, { wch: 10 },
       { wch: 25 }, { wch: 15 }, { wch: 20 },
     ];
     const wb = XLSX.utils.book_new();
@@ -1233,9 +1232,10 @@ function DashboardContent() {
             student_code: studentCode,
             full_name: fullName,
             grade: cell(row, 'grade') || undefined,
-            phone: cell(row, 'phone') || undefined,
             parent_name: cell(row, 'parent_name') || undefined,
-            parent_phone: cell(row, 'parent_phone') || undefined,
+            // Students have one number, the parent's, like the Add Student form.
+            // Older sheets with only a "Phone" column still land there.
+            parent_phone: cell(row, 'parent_phone') || cell(row, 'phone') || undefined,
             telegram_chat_id: cell(row, 'telegram_chat_id') || undefined,
           };
         });
@@ -1837,8 +1837,8 @@ function DashboardContent() {
                                 <th className="border p-2 text-left">Student ID</th>
                                 <th className="border p-2 text-left">Name</th>
                                 <th className="border p-2 text-left">Class</th>
-                                <th className="border p-2 text-left">Phone</th>
                                 <th className="border p-2 text-left">Parent</th>
+                                <th className="border p-2 text-left">Parent Phone</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1848,8 +1848,8 @@ function DashboardContent() {
                                   <td className="border p-2">{row.student_code}</td>
                                   <td className="border p-2">{row.full_name}</td>
                                   <td className="border p-2">{row.grade || '-'}</td>
-                                  <td className="border p-2">{row.phone || '-'}</td>
                                   <td className="border p-2">{row.parent_name || '-'}</td>
+                                  <td className="border p-2">{row.parent_phone || '-'}</td>
                                 </tr>
                               ))}
                             </tbody>
