@@ -42,6 +42,8 @@ interface Parent {
   whatsapp?: { status: 'ok' | 'unchecked' | 'missing' | 'problem'; problem?: 'invalid' | 'not_on_whatsapp' };
 }
 
+type StudentSortKey = 'studentId' | 'name' | 'grade' | 'due';
+
 interface Student {
   id: string;
   studentId: string;
@@ -369,6 +371,7 @@ function DashboardContent() {
   // Students ticked in the list, for deleting several at once
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
   const [studentSearch, setStudentSearch] = useState('');
+  const [studentSort, setStudentSort] = useState<{ key: StudentSortKey; dir: 'asc' | 'desc' }>({ key: 'studentId', dir: 'asc' });
   const [deleting, setDeleting] = useState(false);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1491,12 +1494,52 @@ function DashboardContent() {
     }
   };
 
+  // Same sum as the Total Due column: fee after discount minus what was paid
+  const studentDue = (student: Student) => {
+    const totalFee = student.subjects.reduce((total, subjectId) => {
+      const subject = subjects.find(s => s.id === subjectId);
+      return total + (subject?.fee || 0);
+    }, 0);
+    if (totalFee === 0) return 0;
+    const actual = student.finalAmount > 0
+      ? student.finalAmount
+      : totalFee - Math.round(totalFee * (student.discount || 0) / 100);
+    return Math.max(actual - student.feesPaid, 0);
+  };
+
   const studentQuery = studentSearch.trim().toLowerCase();
-  const visibleStudents = studentQuery
+  const visibleStudents = (studentQuery
     ? students.filter((s) =>
         [s.studentId, s.name, s.grade, s.biometricId].some((v) => String(v || '').toLowerCase().includes(studentQuery))
       )
-    : students;
+    : [...students]
+  ).sort((a, b) => {
+    const order = studentSort.dir === 'asc' ? 1 : -1;
+    if (studentSort.key === 'due') return (studentDue(a) - studentDue(b)) * order;
+    const av = String(a[studentSort.key] || '');
+    const bv = String(b[studentSort.key] || '');
+    return av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' }) * order;
+  });
+
+  const toggleStudentSort = (key: StudentSortKey) => {
+    setStudentSort((prev) => ({ key, dir: prev.key === key && prev.dir === 'asc' ? 'desc' : 'asc' }));
+  };
+
+  const sortableHeader = (label: string, key: StudentSortKey) => (
+    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">
+      <button
+        type="button"
+        onClick={() => toggleStudentSort(key)}
+        className="inline-flex items-center gap-1 uppercase hover:text-gray-900"
+        title="Click to sort"
+      >
+        {label}
+        <span className={studentSort.key === key ? 'text-blue-600' : 'text-gray-300'}>
+          {studentSort.key === key && studentSort.dir === 'desc' ? '▼' : '▲'}
+        </span>
+      </button>
+    </th>
+  );
 
   const toggleStudentSelected = (id: string) => {
     setSelectedStudentIds((prev) => {
@@ -2249,13 +2292,13 @@ function DashboardContent() {
                             }
                           />
                         </th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Student ID</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Name</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Grade</th>
+                        {sortableHeader('Student ID', 'studentId')}
+                        {sortableHeader('Name', 'name')}
+                        {sortableHeader('Grade', 'grade')}
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Biometric ID</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Subjects</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Monthly Fee</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Total Due</th>
+                        {sortableHeader('Total Due', 'due')}
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Due Date</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">WhatsApp</th>
