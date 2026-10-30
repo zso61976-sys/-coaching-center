@@ -368,6 +368,7 @@ function DashboardContent() {
   const [whatsappWarning, setWhatsappWarning] = useState<WhatsappNumberProblem[]>([]);
   // Students ticked in the list, for deleting several at once
   const [selectedStudentIds, setSelectedStudentIds] = useState<Set<string>>(new Set());
+  const [studentSearch, setStudentSearch] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -424,12 +425,16 @@ function DashboardContent() {
 
   const fetchStudents = async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/students`, {
+      // The API pages 50 at a time by default; ask for everyone
+      const res = await fetch(`${API_URL}/admin/students?limit=10000`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
       if (res.ok) {
         const data = await res.json();
-        const studentsList = data?.data?.students || [];
+        // Sort by Student ID with numbers compared as numbers (ST009 before ST0010)
+        const studentsList = [...(data?.data?.students || [])].sort((a: any, b: any) =>
+          String(a.student_code || '').localeCompare(String(b.student_code || ''), undefined, { numeric: true, sensitivity: 'base' })
+        );
 
         // Get saved fee data from localStorage
         const savedFeeData = localStorage.getItem('studentFeeData');
@@ -1186,23 +1191,57 @@ function DashboardContent() {
       const workbook = XLSX.read(data, { type: 'array' });
       const sheetName = workbook.SheetNames[0];
       const sheet = workbook.Sheets[sheetName];
-      const jsonData = XLSX.utils.sheet_to_json<any>(sheet);
+      const jsonData = XLSX.utils.sheet_to_json<any>(sheet, { defval: '' });
+
+      // Match headings loosely: hand-made sheets often have trailing spaces,
+      // different case, plurals or typos ("students ID ", "Prent Phone ").
+      const norm = (h: string) => h.toLowerCase().replace(/[^a-z]/g, '');
+      const FIELD_HEADERS: Record<string, string[]> = {
+        student_code: ['studentid', 'studentsid', 'studentcode', 'id', 'rollno', 'rollnumber'],
+        full_name: ['name', 'studentname', 'fullname'],
+        grade: ['class', 'grade'],
+        phone: ['phone', 'studentphone', 'mobile', 'phoneno', 'contact'],
+        parent_name: ['parentname', 'prentname', 'fathername', 'guardianname'],
+        parent_phone: ['parentphone', 'prentphone', 'fatherphone', 'guardianphone', 'parentmobile'],
+        telegram_chat_id: ['telegramchatid', 'telgramchatid', 'telegramid', 'chatid'],
+      };
+      const headerFor: Record<string, string> = {};
+      for (const header of Object.keys(jsonData[0] || {})) {
+        const n = norm(header);
+        for (const [field, aliases] of Object.entries(FIELD_HEADERS)) {
+          if (!headerFor[field] && aliases.includes(n)) headerFor[field] = header;
+        }
+      }
+      const cell = (row: any, field: string) =>
+        headerFor[field] ? String(row[headerFor[field]] ?? '').trim() : '';
 
       const errors: string[] = [];
-      const parsed = jsonData.map((row: any, idx: number) => {
-        const studentCode = String(row['Student ID'] || '').trim();
-        const fullName = String(row['Name'] || '').trim();
-        if (!studentCode) errors.push(`Row ${idx + 2}: Student ID is required`);
-        if (!fullName) errors.push(`Row ${idx + 2}: Name is required`);
-        return {
-          student_code: studentCode,
-          full_name: fullName,
-          grade: String(row['Class'] || '').trim() || undefined,
-          phone: String(row['Phone'] || '').trim() || undefined,
-          parent_name: String(row['Parent Name'] || '').trim() || undefined,
-          parent_phone: String(row['Parent Phone'] || '').trim() || undefined,
-          telegram_chat_id: String(row['Telegram Chat ID'] || '').trim() || undefined,
-        };
+      if (!headerFor.student_code || !headerFor.full_name) {
+        errors.push('Could not find the "Student ID" and "Name" columns. Please use the headings from the Download Template file.');
+      }
+      const parsed = jsonData
+        .filter((row: any) => Object.values(row).some(v => String(v ?? '').trim() !== ''))
+        .map((row: any, idx: number) => {
+          const studentCode = cell(row, 'student_code');
+          const fullName = cell(row, 'full_name');
+          if (!studentCode) errors.push(`Row ${idx + 2}: Student ID is required`);
+          if (!fullName) errors.push(`Row ${idx + 2}: Name is required`);
+          return {
+            student_code: studentCode,
+            full_name: fullName,
+            grade: cell(row, 'grade') || undefined,
+            phone: cell(row, 'phone') || undefined,
+            parent_name: cell(row, 'parent_name') || undefined,
+            parent_phone: cell(row, 'parent_phone') || undefined,
+            telegram_chat_id: cell(row, 'telegram_chat_id') || undefined,
+          };
+        });
+      const seenCodes = new Set<string>();
+      parsed.forEach((s, idx) => {
+        if (s.student_code && seenCodes.has(s.student_code)) {
+          errors.push(`Row ${idx + 2}: Student ID ${s.student_code} is used twice in this file`);
+        }
+        seenCodes.add(s.student_code);
       });
 
       setImportData(parsed);
@@ -1451,6 +1490,13 @@ function DashboardContent() {
       setError(err.message);
     }
   };
+
+  const studentQuery = studentSearch.trim().toLowerCase();
+  const visibleStudents = studentQuery
+    ? students.filter((s) =>
+        [s.studentId, s.name, s.grade, s.biometricId].some((v) => String(v || '').toLowerCase().includes(studentQuery))
+      )
+    : students;
 
   const toggleStudentSelected = (id: string) => {
     setSelectedStudentIds((prev) => {
@@ -2151,7 +2197,18 @@ function DashboardContent() {
             {/* Students Table */}
             <div className="bg-white rounded-xl shadow">
               <div className="p-6 border-b flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-lg font-bold">Students ({students.length})</h2>
+                <div className="flex flex-wrap items-center gap-3">
+                  <h2 className="text-lg font-bold">
+                    Students ({studentSearch.trim() ? `${visibleStudents.length} of ${students.length}` : students.length})
+                  </h2>
+                  <input
+                    type="search"
+                    value={studentSearch}
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    placeholder="Search ID, name, grade or bio ID…"
+                    className="px-3 py-2 border rounded-lg text-sm w-64"
+                  />
+                </div>
                 {selectedStudentIds.size > 0 && (
                   <div className="flex items-center gap-3">
                     <button
@@ -2177,18 +2234,18 @@ function DashboardContent() {
                   No students registered yet. Click "Add New Student" to register.
                 </div>
               ) : (
-                <div className="overflow-x-auto">
+                <div className="overflow-auto max-h-[70vh]">
                   <table className="w-full">
-                    <thead className="bg-gray-50">
+                    <thead className="bg-gray-50 sticky top-0 z-10">
                       <tr>
                         <th className="px-4 py-3 w-10">
                           <input
                             type="checkbox"
                             aria-label="Select all students"
                             className="w-4 h-4 cursor-pointer"
-                            checked={students.length > 0 && students.every((s) => selectedStudentIds.has(s.id))}
+                            checked={visibleStudents.length > 0 && visibleStudents.every((s) => selectedStudentIds.has(s.id))}
                             onChange={(e) =>
-                              setSelectedStudentIds(e.target.checked ? new Set(students.map((s) => s.id)) : new Set())
+                              setSelectedStudentIds(e.target.checked ? new Set(visibleStudents.map((s) => s.id)) : new Set())
                             }
                           />
                         </th>
@@ -2205,7 +2262,12 @@ function DashboardContent() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-200">
-                      {students.map((student) => {
+                      {visibleStudents.length === 0 && (
+                        <tr>
+                          <td colSpan={11} className="p-8 text-center text-gray-500">No students match "{studentSearch}"</td>
+                        </tr>
+                      )}
+                      {visibleStudents.map((student) => {
                         const studentSubjectNames = student.subjects.map(id =>
                           subjects.find(s => s.id === id)?.name
                         ).filter(Boolean);
