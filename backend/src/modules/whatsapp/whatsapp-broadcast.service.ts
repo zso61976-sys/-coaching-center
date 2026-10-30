@@ -144,7 +144,7 @@ export class WhatsappBroadcastService {
    * intro and closing. If the notice already uses {parent_name} / {student_name},
    * the greeting / intro that would repeat the name is left out.
    */
-  private personalize(template: string, recipient: Recipient, companyName: string) {
+  private personalize(template: string, recipient: Recipient, companyName: string, footer: string) {
     const parentName =
       recipient.parent.fullName && !recipient.parent.fullName.startsWith('Parent of')
         ? recipient.parent.fullName
@@ -161,6 +161,8 @@ export class WhatsappBroadcastService {
     parts.push(/\{student_name\}/i.test(template) ? body : `${pick(ICONS)} ${fill(pick(INTROS))}\n${body}`);
     parts.push('', pick(CLOSINGS));
     if (companyName) parts.push(`— ${companyName}`);
+    // The company's fixed ending, e.g. its website link
+    if (footer) parts.push('', footer.replace(/\{company\}/g, companyName));
     return parts.join('\n');
   }
 
@@ -190,7 +192,7 @@ export class WhatsappBroadcastService {
       // A few examples, to show how the wording changes from parent to parent
       samples: message?.trim()
         ? Array.from({ length: Math.min(3, recipients.length) }, (_, i) =>
-            this.personalize(message, recipients[i], tenant?.name || ''),
+            this.personalize(message, recipients[i], tenant?.name || '', settings.messageFooter),
           )
         : [],
     };
@@ -251,7 +253,7 @@ export class WhatsappBroadcastService {
     for (let i = 0; i < recipients.length; i++) {
       const recipient = recipients[i];
       const accountId = await this.whatsappService.assignAccount(tenantId, recipient.parent);
-      const text = this.personalize(message, recipient, tenant?.name || '');
+      const text = this.personalize(message, recipient, tenant?.name || '', settings.messageFooter);
       const log = await this.prisma.whatsappMessageLog.create({
         data: {
           tenantId,

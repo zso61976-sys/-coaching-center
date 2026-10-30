@@ -44,8 +44,8 @@ export interface WhatsappSettings {
   countryCode: string;
   timeZone: string;
   welcomeTexts: WelcomeTexts;
-  /** Added unchanged to the end of every welcome, e.g. the website link */
-  welcomeFooter: string;
+  /** Added to the end of every welcome and broadcast message, e.g. the website link */
+  messageFooter: string;
 }
 
 const JOB_OPTIONS = {
@@ -130,7 +130,7 @@ const DEFAULT_SETTINGS: WhatsappSettings = {
   countryCode: '971',
   timeZone: 'Asia/Dubai',
   welcomeTexts: DEFAULT_WELCOME_TEXTS,
-  welcomeFooter: '',
+  messageFooter: '',
 };
 
 /** Saved wording with blank lines dropped; a part left empty falls back to the default */
@@ -785,7 +785,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       countryCode: (data.countryCode ?? current.countryCode).replace(/\D/g, ''),
       timeZone: data.timeZone ?? current.timeZone,
       welcomeTexts: cleanWelcomeTexts(data.welcomeTexts ?? current.welcomeTexts),
-      welcomeFooter: (data.welcomeFooter ?? current.welcomeFooter ?? '').trim().slice(0, 1000),
+      messageFooter: (data.messageFooter ?? current.messageFooter ?? '').trim().slice(0, 1000),
     };
 
     try {
@@ -1224,7 +1224,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       fill(pick(texts.updates)),
       `📌 ${fill(pick(texts.save))}`,
       `⚠️ ${fill(pick(texts.noReply))}`,
-      fill(settings.welcomeFooter),
+      fill(settings.messageFooter),
     ].filter(Boolean).join('\n\n');
   }
 

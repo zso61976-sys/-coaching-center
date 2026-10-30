@@ -42,7 +42,7 @@ class UpdateWhatsappSettingsDto {
   @IsOptional()
   @IsString()
   @MaxLength(1000)
-  welcomeFooter?: string;
+  messageFooter?: string;
 }
 
 class CreateAccountDto {

@@ -26,7 +26,7 @@ interface Settings {
   countryCode: string;
   timeZone: string;
   welcomeTexts: WelcomeTexts;
-  welcomeFooter: string;
+  messageFooter: string;
 }
 
 // The welcome message is built from one line of each part, picked at random per parent
@@ -800,12 +800,13 @@ export default function WhatsappPage() {
         <div>
           <label className="block text-sm font-medium text-gray-700">Always added at the end</label>
           <p className="text-xs text-gray-500 mb-1">
-            Sent in every welcome exactly as written, e.g. your website link, address or office phone.
+            Added exactly as written to the end of every <b>welcome</b> and <b>broadcast</b> message
+            (not to check-in / check-out messages), e.g. your website link, address or office phone.
             Leave empty for none.
           </p>
           <textarea
-            value={settingsForm.welcomeFooter ?? ''}
-            onChange={(e) => setSettingsForm({ ...settingsForm, welcomeFooter: e.target.value })}
+            value={settingsForm.messageFooter ?? ''}
+            onChange={(e) => setSettingsForm({ ...settingsForm, messageFooter: e.target.value })}
             rows={3}
             placeholder="🌐 Visit us: https://..."
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500"
@@ -821,7 +822,7 @@ export default function WhatsappPage() {
             Save Welcome Message
           </button>
           <button
-            onClick={() => setWelcomePreview(sampleWelcome(settingsForm.welcomeTexts, settingsForm.welcomeFooter, company?.name || 'Your Center'))}
+            onClick={() => setWelcomePreview(sampleWelcome(settingsForm.welcomeTexts, settingsForm.messageFooter, company?.name || 'Your Center'))}
             className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50"
           >
             {welcomePreview ? 'Show Another Example' : 'Show Example'}
